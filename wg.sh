@@ -33,8 +33,15 @@ fi
 # 2. دریافت تنظیمات از کاربر
 echo -e "${GREEN}Step 2: Configuration${NC}"
 
-# تشخیص IP عمومی سرور به صورت خودکار
-AUTO_IP=$(curl -s ifconfig.me)
+# تشخیص IP عمومی سرور به صورت خودکار با چند روش پشتیبان
+echo "Detecting Public IP..."
+AUTO_IP=$(curl -s https://api.ipify.org || curl -s https://ifconfig.me || curl -s https://icanhazip.com || echo "127.0.0.1")
+
+# اعتبارسنجی IP (حذف خطاها یا رشته‌های طولانی غیر IP)
+if [[ "$AUTO_IP" == *"error"* ]] || [[ ${#AUTO_IP} -gt 15 ]]; then
+    AUTO_IP=""
+fi
+
 read -p "Enter Public IP (Default: $AUTO_IP): " PUBLIC_IP
 PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
 
@@ -55,7 +62,11 @@ read -p "Enter WireGuard UDP Port (Default: 51820): " WG_PORT
 WG_PORT=${WG_PORT:-51820}
 
 # تنظیم منطقه زمانی
-TIMEZONE=$(cat /etc/timezone)
+if [ -f /etc/timezone ]; then
+    TIMEZONE=$(cat /etc/timezone)
+else
+    TIMEZONE="UTC"
+fi
 
 # 3. ایجاد دایرکتوری و فایل Docker Compose
 echo -e "${GREEN}Step 3: Setting up WGDashboard directory and files...${NC}"
@@ -64,6 +75,7 @@ mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
 # ساخت فایل compose.yaml طبق مستندات ارائه شده
+# نکته: فاصله‌ها در فایل یمل بسیار مهم هستند
 cat <<EOF > compose.yaml
 services:
   wgdashboard:
@@ -97,13 +109,13 @@ echo "compose.yaml created successfully at $INSTALL_DIR"
 
 # 4. تنظیم فایروال (اختیاری)
 echo -e "${GREEN}Step 4: Checking Firewall (UFW)...${NC}"
-if ufw status | grep -q "Status: active"; then
+if command -v ufw &> /dev/null && ufw status | grep -q "Status: active"; then
     echo "Opening port $WGD_PORT (TCP) and $WG_PORT (UDP)..."
     ufw allow $WGD_PORT/tcp
     ufw allow $WG_PORT/udp
     ufw reload
 else
-    echo "UFW is not active. Skipping firewall configuration."
+    echo "UFW is not active or not installed. Skipping firewall configuration."
 fi
 
 # 5. اجرای کانتینر
