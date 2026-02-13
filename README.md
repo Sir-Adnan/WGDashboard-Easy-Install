@@ -32,13 +32,10 @@ bash <(curl -Ls --ipv4 https://raw.githubusercontent.com/Sir-Adnan/WGDashboard-E
 ```
 
 ### روش دوم (اگر curl نصب نبود)
+```bash
+wget -qO- https://raw.githubusercontent.com/Sir-Adnan/WGDashboard-Easy-Install/main/wg.sh | bash
 
-<pre>
-
-Bash
-
-wget -qO- [https://raw.githubusercontent.com/Sir-Adnan/WGDashboard-Easy-Install/main/wg.sh](https://raw.githubusercontent.com/Sir-Adnan/WGDashboard-Easy-Install/main/wg.sh) | bash
-</pre>
+```
 
 ---
 ## 📋 مراحل نصب
