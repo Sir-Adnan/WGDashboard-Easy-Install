@@ -15,23 +15,30 @@
 * wall **فایروال:** (اختیاری) باز کردن پورت‌های مورد نیاز در UFW.
 
 ---
+# 🚀 WGDashboard Easy Install
+**سریع‌ترین و ساده‌ترین راه برای راه‌اندازی پنل مدیریت وایرگارد روی اوبونتو**
 
-## 📥 نحوه نصب و اجرا
+این اسکریپت تمام مراحل نصب **Docker**، تنظیمات **Firewall** و پیکربندی **WGDashboard** را به صورت خودکار برای شما انجام می‌دهد.
 
+---
+
+## ⚡ نصب سریع (Quick Install)
 برای نصب، تنها کافیست دستور زیر را در ترمینال سرور خود اجرا کنید. این دستور اسکریپت را دانلود و اجرا می‌کند:
 
 ### روش اول (پیشنهادی - با curl)
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/Sir-Adnan/WGDashboard-Easy-Install/main/wg.sh)
+bash <(curl -Ls --ipv4 https://raw.githubusercontent.com/Sir-Adnan/WGDashboard-Easy-Install/main/wg.sh)
 
 ```
 
 ### روش دوم (اگر curl نصب نبود)
 
-```bash
-wget -qO- (curl -sL https://raw.githubusercontent.com/Sir-Adnan/WGDashboard-Easy-Install/main/wg.sh) | bash
+<pre>
 
-```
+Bash
+
+wget -qO- [https://raw.githubusercontent.com/Sir-Adnan/WGDashboard-Easy-Install/main/wg.sh](https://raw.githubusercontent.com/Sir-Adnan/WGDashboard-Easy-Install/main/wg.sh) | bash
+</pre>
 
 ---
 ## 📋 مراحل نصب
