@@ -82,9 +82,10 @@ services:
     image: ghcr.io/wgdashboard/wgdashboard:latest
     container_name: wgdashboard
     restart: unless-stopped
-    ports:
-      - ${WGD_PORT}:10086/tcp
-      - ${WG_PORT}:${WG_PORT}/udp
+    network_mode: host
+#    ports:
+#      - ${WGD_PORT}:10086/tcp
+#      - ${WG_PORT}:${WG_PORT}/udp
     environment:
       - TZ=${TIMEZONE}
       - public_ip=${PUBLIC_IP}
