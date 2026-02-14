@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# FIX: استفاده از تابع برای مدیریت قفل APT (مورد ۶)
+# تابع مدیریت قفل APT
 wait_for_apt() {
   while fuser /var/lib/dpkg/lock >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
     echo "Waiting for other package managers to finish..."
@@ -8,8 +8,7 @@ wait_for_apt() {
   done
 }
 
-# FIX: اصلاح پایداری تنظیمات sysctl (مورد ۲)
-# فقط اگر خط مربوطه وجود نداشت آن را اضافه می‌کند
+# اصلاح پایداری تنظیمات sysctl
 echo "Enabling IP Forwarding..."
 if ! grep -q "^net.ipv4.ip_forward=1" /etc/sysctl.conf; then
     echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
@@ -17,7 +16,7 @@ fi
 sysctl -w net.ipv4.ip_forward=1
 sysctl -p
 
-# رنگ‌ها برای نمایش بهتر خروجی
+# رنگ‌ها
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
@@ -31,16 +30,12 @@ if [ "$EUID" -ne 0 ]; then
   exit
 fi
 
-# 1. نصب داکر و داکر کامپوز
+# 1. نصب داکر و پلاگین کامپوز
 echo -e "${GREEN}Step 1: Checking Docker installation...${NC}"
 
-# FIX: بررسی دقیق‌تر نصب بودن پلاگین docker compose (مورد ۳)
 if ! docker compose version &> /dev/null; then
     echo "Docker Compose not found. Installing Docker..."
-    
-    # انتظار برای آزادسازی قفل APT
     wait_for_apt
-    
     apt-get update
     apt-get install -y ca-certificates curl gnupg lsb-release
     mkdir -p /etc/apt/keyrings
@@ -56,15 +51,13 @@ else
     echo "Docker and Docker Compose are already installed."
 fi
 
-# 2. دریافت تنظیمات از کاربر
+# 2. دریافت تنظیمات
 echo -e "${GREEN}Step 2: Configuration${NC}"
 
-# تشخیص IP عمومی سرور
 echo "Detecting Public IP..."
 AUTO_IP=$(curl -s https://api.ipify.org || curl -s https://ifconfig.me || curl -s https://icanhazip.com || echo "127.0.0.1")
 
-# FIX: اعتبارسنجی دقیق IP با Regex (مورد ۴)
-# اگر خروجی فرمت IPv4 استاندارد نباشد (مثل IPv6 یا ارور HTML)، مقدار پیش‌فرض خالی می‌شود
+# اعتبارسنجی IP
 if [[ ! $AUTO_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     AUTO_IP=""
 fi
@@ -85,6 +78,7 @@ fi
 read -p "Enter Dashboard Port (Default: 10086): " WGD_PORT
 WGD_PORT=${WGD_PORT:-10086}
 
+echo -e "${BLUE}NOTE: According to official docs, the container creates a config with port 51820 by default.${NC}"
 read -p "Enter WireGuard UDP Port (Default: 51820): " WG_PORT
 WG_PORT=${WG_PORT:-51820}
 
@@ -95,7 +89,7 @@ else
     TIMEZONE="UTC"
 fi
 
-# 3. ایجاد دایرکتوری و فایل Docker Compose
+# 3. ایجاد دایرکتوری و فایل
 echo -e "${GREEN}Step 3: Setting up WGDashboard directory and files...${NC}"
 INSTALL_DIR="/opt/wgdashboard"
 mkdir -p "$INSTALL_DIR"
@@ -108,20 +102,16 @@ services:
     image: ghcr.io/wgdashboard/wgdashboard:latest
     container_name: wgdashboard
     restart: unless-stopped
-    # FIX: حفظ درخواست کاربر برای Host Network
     network_mode: host
     environment:
       - TZ=${TIMEZONE}
       - public_ip=${PUBLIC_IP}
       - username=${WGD_USER}
       - password=${WGD_PASS}
-      # FIX: رفع باگ بحرانی عدم تطابق پورت‌ها (مورد ۱)
-      # استفاده از متغیر ورودی کاربر به جای مقدار ثابت 10086
       - wgd_port=${WGD_PORT}
-      - wg_port=${WG_PORT}
       - global_dns=1.1.1.1
+      - wg_autostart=true
     volumes:
-      # FIX: حفظ والیوم درخواستی amnezia
       - aconf:/etc/amnezia/amneziawg
       - conf:/etc/wireguard
       - data:/data
@@ -136,7 +126,7 @@ EOF
 
 echo "compose.yaml created successfully at $INSTALL_DIR"
 
-# 4. تنظیم فایروال (اختیاری)
+# 4. تنظیم فایروال
 echo -e "${GREEN}Step 4: Checking Firewall (UFW)...${NC}"
 if command -v ufw &> /dev/null && ufw status | grep -q "Status: active"; then
     echo "Opening port $WGD_PORT (TCP) and $WG_PORT (UDP)..."
@@ -159,3 +149,9 @@ echo -e "Username:        ${WGD_USER}"
 echo -e "Password:        (hidden)"
 echo -e "WireGuard Port:  ${WG_PORT}/udp"
 echo -e "${BLUE}===============================================${NC}"
+
+if [ "$WG_PORT" != "51820" ]; then
+    echo -e "${RED}⚠️  IMPORTANT WARNING: You chose port $WG_PORT, but the default config is 51820.${NC}"
+    echo -e "Please log in to the dashboard, go to ${BLUE}Configuration Settings -> Edit Raw Configuration File${NC}"
+    echo -e "and change 'ListenPort = 51820' to 'ListenPort = $WG_PORT' manually."
+fi
