@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-#  WGDashboard Manager - Stable Pro Edition (V4.0)
+#  WGDashboard Manager - Bug-Free Edition (V5.0)
 # =========================================================
 
 # --- Colors ---
@@ -14,11 +14,11 @@ C='\033[0;36m'
 W='\033[1;37m'
 N='\033[0m'
 
-# --- Config ---
+# --- Configuration ---
 INSTALL_DIR="/opt/wgdashboard"
 BACKUP_SCRIPT_PATH="/usr/local/bin/wgd-backup.sh"
 
-# --- UI Tools ---
+# --- UI Helper Functions ---
 
 draw_box() {
     local title="$1"
@@ -26,15 +26,15 @@ draw_box() {
     local color="$3"
     
     echo -e "${color}"
-    echo "╭──────────────────────────────────────────────────────────────╮"
+    echo "╔══════════════════════════════════════════════════════════════╗"
     if [ -n "$title" ]; then
-        printf "│ %-60s │\n" "  $title"
-        echo "├──────────────────────────────────────────────────────────────┤"
+        printf "║ %-60s ║\n" "  $title"
+        echo "╠══════════════════════════════════════════════════════════════╣"
     fi
     echo "$text" | while IFS= read -r line; do
-        printf "│ %-60s │\n" "  $line"
+        printf "║ %-60s ║\n" "  $line"
     done
-    echo "╰──────────────────────────────────────────────────────────────╯"
+    echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${N}"
 }
 
@@ -47,11 +47,11 @@ header() {
     echo " | |/ |/ /  / /_/ /    / /_/ / / /_/ / /_/       "
     echo " |__/|__/   \____/    /_____/  \____/ (_)        "
     echo -e "${N}"
-    echo -e " ${C}:: WireGuard Dashboard Ultimate Manager ::${N}"
+    echo -e " ${C}:: Ultimate WireGuard Dashboard Manager ::${N}"
     echo ""
 }
 
-# --- Validation ---
+# --- Check Root ---
 if [ "$EUID" -ne 0 ]; then
     echo -e "${R}❌ Error: Please run as root (sudo).${N}"
     exit 1
@@ -62,7 +62,7 @@ fi
 install_panel() {
     header
     draw_box "STEP 1: INSTALLATION" \
-    "This wizard will install Docker and WGDashboard.\nEnsure ports 10086 (TCP) and 51820 (UDP) are open." "$B"
+    "Installing Docker & WGDashboard.\nEnsure Ports: 10086 (TCP), 51820 (UDP)" "$B"
 
     echo -e " ${C}➜ Configuring System...${N}"
     if ! grep -q "^net.ipv4.ip_forward=1" /etc/sysctl.conf; then
@@ -71,7 +71,7 @@ install_panel() {
     sysctl -w net.ipv4.ip_forward=1 > /dev/null 2>&1
 
     if ! command -v docker &> /dev/null; then
-        echo -e " ${C}➜ Installing Docker Engine...${N}"
+        echo -e " ${C}➜ Installing Docker...${N}"
         apt-get update -qq >/dev/null 2>&1
         apt-get install -y -qq ca-certificates curl gnupg lsb-release >/dev/null 2>&1
         mkdir -p /etc/apt/keyrings
@@ -84,7 +84,7 @@ install_panel() {
     fi
 
     echo ""
-    draw_box "CONFIGURATION" "Enter your dashboard settings." "$P"
+    draw_box "CONFIGURATION" "Enter dashboard details." "$P"
     
     DETECTED_IP=$(curl -s https://api.ipify.org || echo "127.0.0.1")
     echo -ne " ${Y}➤${N} Public IP [Default: $DETECTED_IP]: "; read IP_IN
@@ -99,10 +99,10 @@ install_panel() {
         echo -e " ${R}⚠ Password is required!${N}"
     done
     
-    echo -ne " ${Y}➤${N} Panel Port [Default: 10086]: "; read PORT_IN
+    echo -ne " ${Y}➤${N} Port [Default: 10086]: "; read PORT_IN
     WGD_PORT=${PORT_IN:-10086}
     
-    echo -e "\n ${C}➜ Deploying Container...${N}"
+    echo -e "\n ${C}➜ Deploying...${N}"
     mkdir -p "$INSTALL_DIR"
     cd "$INSTALL_DIR"
 
@@ -148,8 +148,7 @@ EOF
 
 setup_backup_bot() {
     header
-    draw_box "TELEGRAM AUTO-BACKUP" \
-    "This tool sends your WireGuard configs to Telegram automatically.\nMake sure you have a Bot Token and Chat ID." "$B"
+    draw_box "TELEGRAM AUTO-BACKUP" "Setup automated backups to Telegram." "$B"
 
     if ! docker ps -a | grep -q wgdashboard; then
         echo -e " ${R}✖ Dashboard not found. Install it first.${N}"
@@ -162,7 +161,7 @@ setup_backup_bot() {
     apt-get install -y -qq zip curl cron >/dev/null 2>&1
 
     echo ""
-    draw_box "CREDENTIALS" "Required info from @BotFather and @userinfobot" "$P"
+    draw_box "CREDENTIALS" "Enter Bot Token & Chat ID." "$P"
     echo -ne " ${Y}➤${N} Bot Token: "; read TG_TOKEN
     echo -ne " ${Y}➤${N} Chat ID: "; read TG_CHATID
 
@@ -173,17 +172,17 @@ setup_backup_bot() {
     fi
 
     echo ""
-    draw_box "NAMING" "Enter a unique name for this server (e.g. Server-1)." "$P"
+    draw_box "NAMING" "Unique name for this server (Allowed: A-Z, 0-9, . , -)" "$P"
     echo -ne " ${Y}➤${N} Backup Name [Default: WGD-Backup]: "; read PREFIX_IN
     
-    # Sanitization (Safe formatting)
+    # --- CRITICAL FIX: SANITIZE INPUT ---
+    # Removes any special characters except letters, numbers, dots, and dashes
     BACKUP_PREFIX=${PREFIX_IN:-WGD-Backup}
-    # Remove dangerous characters
     CLEAN_PREFIX=$(echo "$BACKUP_PREFIX" | tr -dc 'a-zA-Z0-9-._')
 
-    # ---------------------------------------------------------
-    # FIX: Writing variables first, then logic to avoid execution bugs
-    # ---------------------------------------------------------
+    # --- CRITICAL FIX: SAFE SCRIPT GENERATION ---
+    
+    # 1. Write Variables safely
     cat <<EOF > "$BACKUP_SCRIPT_PATH"
 #!/bin/bash
 # Config
@@ -192,7 +191,7 @@ CHAT_ID="${TG_CHATID}"
 PREFIX="${CLEAN_PREFIX}"
 EOF
 
-    # Appending logic using quoted EOF to prevent variable expansion by installer
+    # 2. Append Logic (Quoted Heredoc: Prevents execution during creation)
     cat <<'EOF' >> "$BACKUP_SCRIPT_PATH"
 
 # Dynamic Info
@@ -213,7 +212,8 @@ cp -r /var/lib/docker/volumes/wgdashboard_data/_data "${BACKUP_DIR}/dashboard_da
 cd /tmp
 zip -r "${ZIP_FILE}" "${FILENAME}" >/dev/null 2>&1
 
-# Send to Telegram (With explicit backticks for markdown)
+# Send to Telegram
+# We use backslash-backtick (\`) to create a literal backtick string for Telegram Markdown
 CAPTION="📦 *Backup Notification*%0A🏷 Name: \`${PREFIX}\`%0A🖥 IP: \`${SERVER_IP}\`%0A📅 Date: $(date +'%Y-%m-%d %H:%M')"
 
 curl -s -F document=@"${ZIP_FILE}" "https://api.telegram.org/bot${TOKEN}/sendDocument?chat_id=${CHAT_ID}&caption=${CAPTION}&parse_mode=Markdown" >/dev/null
@@ -223,10 +223,10 @@ rm -rf "${BACKUP_DIR}" "${ZIP_FILE}"
 EOF
 
     chmod +x "$BACKUP_SCRIPT_PATH"
-    echo -e " ${G}✔ Backup script generated.${N}"
+    echo -e " ${G}✔ Script generated at $BACKUP_SCRIPT_PATH${N}"
 
     echo ""
-    draw_box "FREQUENCY" "Select how often backups should be sent." "$P"
+    draw_box "FREQUENCY" "Select backup interval." "$P"
     echo -e " ${C}1)${N} Every 30 Minutes"
     echo -e " ${C}2)${N} Every 6 Hours"
     echo -e " ${C}3)${N} Daily"
@@ -247,22 +247,22 @@ EOF
     (crontab -l 2>/dev/null; echo "$CRON $BACKUP_SCRIPT_PATH") | crontab -
     
     echo ""
-    echo -e " ${G}✔ Scheduled successfully!${N}"
+    echo -e " ${G}✔ Scheduled!${N}"
     echo -e " ${Y}➜ Sending test backup...${N}"
     
-    # Run the script and capture output code
+    # Run test
     bash "$BACKUP_SCRIPT_PATH"
     if [ $? -eq 0 ]; then
-         echo -e " ${G}✔ Test executed. Check your Telegram.${N}"
+         echo -e " ${G}✔ Test Sent! Check Telegram.${N}"
     else
-         echo -e " ${R}✖ Execution failed. Check Bot Token/ChatID.${N}"
+         echo -e " ${R}✖ Test Failed. Check Token/ChatID.${N}"
     fi
     read -p "Press Enter to return..."
 }
 
 uninstall_all() {
     header
-    draw_box "UNINSTALL" "DANGER: This will delete the dashboard and backup bot." "$R"
+    draw_box "UNINSTALL" "Delete Dashboard & Bot?" "$R"
     echo -ne " ${Y}➤${N} Type 'yes' to confirm: "; read CONFIRM
     
     if [ "$CONFIRM" == "yes" ]; then
@@ -307,7 +307,7 @@ while true; do
     header
     echo -e " ${G}1)${N} Install Dashboard"
     echo -e " ${G}2)${N} Update Dashboard"
-    echo -e " ${G}3)${N} Setup Backup Bot ${Y}(Hot)${N}"
+    echo -e " ${G}3)${N} Setup Backup Bot ${Y}(Fixed)${N}"
     echo -e " ${G}4)${N} View Logs"
     echo -e " ${R}0)${N} Uninstall"
     echo -e " ${R}9)${N} Exit"
