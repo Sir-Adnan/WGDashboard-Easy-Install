@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-#  WGDashboard Manager - Final Fix (V8.0)
+#  WGDashboard Manager - Final Clean Version (V9.0)
 # =========================================================
 
 # --- Colors ---
@@ -18,7 +18,7 @@ N='\033[0m'
 INSTALL_DIR="/opt/wgdashboard"
 BACKUP_SCRIPT_PATH="/usr/local/bin/wgd-backup.sh"
 
-# --- UI Functions ---
+# --- UI Helper Functions ---
 draw_box() {
     local title="$1"; local text="$2"; local color="$3"
     echo -e "${color}"
@@ -125,19 +125,22 @@ setup_backup_bot() {
     BACKUP_PREFIX=${PREFIX_IN:-WGD-Backup}
     CLEAN_PREFIX=$(echo "$BACKUP_PREFIX" | tr -dc 'a-zA-Z0-9-._')
 
-    # --- THE FIX: SPLIT WRITING TO PREVENT EXECUTION ---
+    # --- CLEAN SCRIPT GENERATION ---
+    echo -e " ${C}➜ Generating Script...${N}"
     
-    # Part 1: Write Variables (Unquoted EOF allows variable expansion)
-    cat <<EOF > "$BACKUP_SCRIPT_PATH"
-#!/bin/bash
-TOKEN="${TG_TOKEN}"
-CHAT_ID="${TG_CHATID}"
-PREFIX="${CLEAN_PREFIX}"
-EOF
+    # 1. Force remove old file
+    rm -f "$BACKUP_SCRIPT_PATH"
+    touch "$BACKUP_SCRIPT_PATH"
+    chmod +x "$BACKUP_SCRIPT_PATH"
 
-    # Part 2: Write Logic (Quoted 'EOF' prevents ANY execution during generation)
-    # This ensures backticks and variables are written literally to the file.
-    cat <<'EOF' >> "$BACKUP_SCRIPT_PATH"
+    # 2. Write file line by line to avoid Heredoc bugs
+    echo "#!/bin/bash" > "$BACKUP_SCRIPT_PATH"
+    echo "TOKEN=\"$TG_TOKEN\"" >> "$BACKUP_SCRIPT_PATH"
+    echo "CHAT_ID=\"$TG_CHATID\"" >> "$BACKUP_SCRIPT_PATH"
+    echo "PREFIX=\"$CLEAN_PREFIX\"" >> "$BACKUP_SCRIPT_PATH"
+    
+    # 3. Append the logic (using single quotes for 'EOS' prevents variable expansion)
+    cat <<'EOS' >> "$BACKUP_SCRIPT_PATH"
 
 # Dynamic Variables
 SERVER_IP=$(curl -s ifconfig.me || hostname -I | awk '{print $1}')
@@ -146,6 +149,7 @@ FILENAME="${PREFIX}_${DATE}"
 BACKUP_DIR="/tmp/${FILENAME}"
 ZIP_FILE="/tmp/${FILENAME}.zip"
 
+# Create Temp Directory
 mkdir -p "${BACKUP_DIR}"
 
 # --- COPY TARGET DATA ---
@@ -161,17 +165,20 @@ fi
 cd /tmp
 zip -r "${ZIP_FILE}" "${FILENAME}" >/dev/null 2>&1
 
-# Send to Telegram (Safe Markdown)
-# We use simple strings to avoid backtick execution issues
-CAPTION="📦 *Backup Notification*%0A🏷 Name: ${PREFIX}%0A🖥 IP: ${SERVER_IP}%0A📅 Date: $(date +'%Y-%m-%d %H:%M')"
+# Send to Telegram (Using -F caption to handle spaces/chars safely)
+CAPTION="Backup: ${PREFIX} | IP: ${SERVER_IP} | Date: ${DATE}"
 
-curl -s -F document=@"${ZIP_FILE}" "https://api.telegram.org/bot${TOKEN}/sendDocument?chat_id=${CHAT_ID}&caption=${CAPTION}&parse_mode=Markdown" >/dev/null
+curl -s \
+  -F chat_id="${CHAT_ID}" \
+  -F caption="${CAPTION}" \
+  -F document=@"${ZIP_FILE}" \
+  "https://api.telegram.org/bot${TOKEN}/sendDocument"
 
+# Cleanup
 rm -rf "${BACKUP_DIR}" "${ZIP_FILE}"
-EOF
+EOS
 
-    chmod +x "$BACKUP_SCRIPT_PATH"
-    echo -e " ${G}✔ Script generated.${N}"
+    echo -e " ${G}✔ Script generated at $BACKUP_SCRIPT_PATH${N}"
 
     echo ""; draw_box "FREQUENCY" "Select Interval" "$P"
     echo -e " ${C}1)${N} 30 Mins  ${C}2)${N} 6 Hours  ${C}3)${N} Daily"
@@ -187,8 +194,11 @@ EOF
     (crontab -l 2>/dev/null; echo "$CRON $BACKUP_SCRIPT_PATH") | crontab -
     
     echo -e " ${G}✔ Scheduled! Sending test...${N}"
+    
+    # Run test immediately
     bash "$BACKUP_SCRIPT_PATH"
-    echo -e " ${G}✔ Test Done.${N}"; read -p "Press Enter..."
+    
+    echo -e " ${G}✔ Test executed.${N}"; read -p "Press Enter..."
 }
 
 remove_backup_only() {
@@ -198,7 +208,7 @@ remove_backup_only() {
     if [ "$CONFIRM" == "yes" ]; then
         (crontab -l 2>/dev/null | grep -v "$BACKUP_SCRIPT_PATH") | crontab -
         rm -f "$BACKUP_SCRIPT_PATH"
-        echo -e " ${G}✔ Backup disabled.${N}"
+        echo -e " ${G}✔ Backup system removed successfully.${N}"
     else
         echo -e " ${Y}⚠ Cancelled.${N}"
     fi
@@ -232,7 +242,7 @@ while true; do
     header
     echo -e " ${G}1)${N} Install Panel"
     echo -e " ${G}2)${N} Update Panel"
-    echo -e " ${G}3)${N} Setup Backup Bot ${Y}(Fixed)${N}"
+    echo -e " ${G}3)${N} Setup Backup Bot ${Y}(Clean V9)${N}"
     echo -e " ${R}4)${N} Remove Backup Only"
     echo -e " ${B}5)${N} View Logs"
     echo -e " ${R}0)${N} Uninstall All"
