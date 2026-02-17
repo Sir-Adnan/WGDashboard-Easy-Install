@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # =========================================================
-#  WGDashboard Manager - V10 (Perfect Edition)
-#  Fixed: Cron Syntax, Multi-Volume Backup, YAML Escaping,
-#         Dynamic Paths, Timeouts, Temp Dir Safety.
+#  WGDashboard Manager - V11 (Production Ready)
+#  Changes: Fixed Cron PATH, Deep Uninstall Option,
+#           Project Name Locking, Robust Error Handling.
 # =========================================================
 
 # --- Colors ---
@@ -19,6 +19,7 @@ N='\033[0m'
 # --- Configuration ---
 INSTALL_DIR="/opt/wgdashboard"
 BACKUP_SCRIPT_PATH="/usr/local/bin/wgd-backup.sh"
+PROJECT_NAME="wgdashboard"
 
 # --- UI Helper Functions ---
 draw_box() {
@@ -56,7 +57,7 @@ install_panel() {
     if ! grep -q "^net.ipv4.ip_forward=1" /etc/sysctl.conf; then echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf; fi
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
 
-    # Fix: Explicit check for docker compose plugin
+    # Check for Docker Compose Plugin
     if ! docker compose version &>/dev/null; then
         echo -e " ${C}➜ Installing Docker & Compose Plugin...${N}"
         apt-get update -qq >/dev/null 2>&1
@@ -71,7 +72,6 @@ install_panel() {
     echo ""
     draw_box "CONFIG" "Dashboard Details" "$P"
     
-    # Fix: Added timeout to prevent freeze
     DETECTED_IP=$(curl -s --max-time 5 https://api.ipify.org || echo "127.0.0.1")
     
     echo -ne " ${Y}➤${N} Public IP [Default: $DETECTED_IP]: "; read IP_IN; PUBLIC_IP=${IP_IN:-$DETECTED_IP}
@@ -82,7 +82,7 @@ install_panel() {
     echo -e "\n ${C}➜ Deploying...${N}"
     mkdir -p "$INSTALL_DIR"; cd "$INSTALL_DIR"
 
-    # Fix: Added quotes around variables to prevent YAML breakage with special chars
+    # YAML generation with quoted variables
     cat <<EOF > compose.yaml
 services:
   wgdashboard:
@@ -109,14 +109,16 @@ volumes:
   conf:
   data:
 EOF
-    docker compose up -d >/dev/null 2>&1
+    # Using -p to enforce project name for reliable volume names
+    docker compose -p "$PROJECT_NAME" up -d >/dev/null 2>&1
+    
     if command -v ufw &>/dev/null && ufw status | grep -q "active"; then ufw allow $WGD_PORT/tcp >/dev/null; ufw allow 51820/udp >/dev/null; fi
     echo -e " ${G}✔ Installed: http://${PUBLIC_IP}:${WGD_PORT}${N}"; read -p "Press Enter..."
 }
 
 setup_backup_bot() {
     header
-    draw_box "AUTO-BACKUP V10" "Backs up CONFIG + DATA + DB + AMNEZIA." "$B"
+    draw_box "AUTO-BACKUP V11" "Backs up CONFIG + DATA + DB + AMNEZIA." "$B"
     apt-get update -qq >/dev/null 2>&1; apt-get install -y -qq zip curl cron >/dev/null 2>&1
 
     echo ""; draw_box "CREDENTIALS" "Enter Bot Token & Chat ID." "$P"
@@ -125,7 +127,6 @@ setup_backup_bot() {
     if [[ -z "$TG_TOKEN" || -z "$TG_CHATID" ]]; then echo -e " ${R}✖ Missing inputs.${N}"; read -p "Enter..."; return; fi
 
     echo -e " ${C}➜ Verifying...${N}"
-    # Fix: Added timeout
     TEST=$(curl -s --max-time 10 -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" -d chat_id="${TG_CHATID}" -d text="🔌 Connection Verified!")
     if [[ "$TEST" != *"\"ok\":true"* ]]; then echo -e " ${R}✖ Connection Failed!${N}"; read -p "Enter..."; return; fi
     echo -e " ${G}✔ Connection Successful!${N}"
@@ -142,13 +143,16 @@ setup_backup_bot() {
     touch "$BACKUP_SCRIPT_PATH"
     chmod +x "$BACKUP_SCRIPT_PATH"
 
-    # Part 1: Variables
+    # Part 1: Header & Variables
     echo "#!/bin/bash" > "$BACKUP_SCRIPT_PATH"
+    # Important: Set PATH for Cron execution to find 'docker' command
+    echo "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" >> "$BACKUP_SCRIPT_PATH"
     echo "TOKEN=\"$TG_TOKEN\"" >> "$BACKUP_SCRIPT_PATH"
     echo "CHAT_ID=\"$TG_CHATID\"" >> "$BACKUP_SCRIPT_PATH"
     echo "PREFIX=\"$CLEAN_PREFIX\"" >> "$BACKUP_SCRIPT_PATH"
+    echo "PROJECT=\"$PROJECT_NAME\"" >> "$BACKUP_SCRIPT_PATH"
     
-    # Part 2: Logic (Quoted Heredoc)
+    # Part 2: Logic
     cat <<'EOS' >> "$BACKUP_SCRIPT_PATH"
 
 # Dynamic Variables
@@ -156,40 +160,35 @@ SERVER_IP=$(curl -s --max-time 5 ifconfig.me || hostname -I | awk '{print $1}')
 DATE=$(date +'%Y-%m-%d_%H-%M')
 FILENAME="${PREFIX}_${DATE}"
 
-# Fix: Use mktemp for safe temporary directory
 TEMP_DIR=$(mktemp -d)
 BACKUP_DIR="${TEMP_DIR}/${FILENAME}"
 ZIP_FILE="${TEMP_DIR}/${FILENAME}.zip"
 
 mkdir -p "${BACKUP_DIR}"
 
-# --- FIX: DYNAMIC VOLUME PATH DETECTION ---
-# Instead of hardcoding /var/lib/docker, we ask Docker where the volumes are.
-# This works even if Docker root is moved.
+# --- DYNAMIC VOLUME PATH DETECTION ---
+# Inspecting volumes based on project name prefix
 
-VOL_CONF=$(docker volume inspect wgdashboard_conf --format '{{.Mountpoint}}' 2>/dev/null)
-VOL_DATA=$(docker volume inspect wgdashboard_data --format '{{.Mountpoint}}' 2>/dev/null)
-VOL_ACONF=$(docker volume inspect wgdashboard_aconf --format '{{.Mountpoint}}' 2>/dev/null)
+VOL_CONF=$(docker volume inspect ${PROJECT}_conf --format '{{.Mountpoint}}' 2>/dev/null)
+VOL_DATA=$(docker volume inspect ${PROJECT}_data --format '{{.Mountpoint}}' 2>/dev/null)
+VOL_ACONF=$(docker volume inspect ${PROJECT}_aconf --format '{{.Mountpoint}}' 2>/dev/null)
 
-# Copy Volumes if they exist
-if [ -n "$VOL_CONF" ] && [ -d "$VOL_CONF" ]; then
-    cp -r "$VOL_CONF" "${BACKUP_DIR}/wireguard_conf"
-fi
+# Fallback for default names if project name lookup fails
+if [ -z "$VOL_CONF" ]; then VOL_CONF=$(docker volume inspect wgdashboard_conf --format '{{.Mountpoint}}' 2>/dev/null); fi
+if [ -z "$VOL_DATA" ]; then VOL_DATA=$(docker volume inspect wgdashboard_data --format '{{.Mountpoint}}' 2>/dev/null); fi
+if [ -z "$VOL_ACONF" ]; then VOL_ACONF=$(docker volume inspect wgdashboard_aconf --format '{{.Mountpoint}}' 2>/dev/null); fi
 
-if [ -n "$VOL_DATA" ] && [ -d "$VOL_DATA" ]; then
-    cp -r "$VOL_DATA" "${BACKUP_DIR}/dashboard_data"
-fi
-
-if [ -n "$VOL_ACONF" ] && [ -d "$VOL_ACONF" ]; then
-    cp -r "$VOL_ACONF" "${BACKUP_DIR}/amnezia_conf"
-fi
+# Copy Volumes
+if [ -n "$VOL_CONF" ] && [ -d "$VOL_CONF" ]; then cp -r "$VOL_CONF" "${BACKUP_DIR}/wireguard_conf"; fi
+if [ -n "$VOL_DATA" ] && [ -d "$VOL_DATA" ]; then cp -r "$VOL_DATA" "${BACKUP_DIR}/dashboard_data"; fi
+if [ -n "$VOL_ACONF" ] && [ -d "$VOL_ACONF" ]; then cp -r "$VOL_ACONF" "${BACKUP_DIR}/amnezia_conf"; fi
 
 # Zip
 cd "${TEMP_DIR}"
 zip -r "${ZIP_FILE}" "${FILENAME}" >/dev/null 2>&1
 
 # Send to Telegram
-CAPTION="📦 *Backup Complete*%0A🏷 Name: ${PREFIX}%0A🖥 IP: ${SERVER_IP}%0A📅 Date: ${DATE}%0A🔐 Included: Conf, Data, DB"
+CAPTION="📦 *Backup Complete*%0A🏷 Name: ${PREFIX}%0A🖥 IP: ${SERVER_IP}%0A📅 Date: ${DATE}"
 
 curl -s --max-time 45 \
   -F chat_id="${CHAT_ID}" \
@@ -208,20 +207,16 @@ EOS
     echo -ne " ${Y}➤${N} Option: "; read FREQ
     case $FREQ in
         1) CRON="*/30 * * * *" ;;
-        # Fix: Correct 5-field cron syntax
         2) CRON="0 */6 * * *" ;; 
         3) echo -ne " ${Y}➤${N} Hour (0-23): "; read H; CRON="0 ${H:-0} * * *" ;;
         *) CRON="0 3 * * *" ;;
     esac
 
-    # Fix: Exact grep match to avoid removing wrong lines
     (crontab -l 2>/dev/null | grep -vF "$BACKUP_SCRIPT_PATH") | crontab -
     (crontab -l 2>/dev/null; echo "$CRON $BACKUP_SCRIPT_PATH") | crontab -
     
     echo -e " ${G}✔ Scheduled! Sending test...${N}"
-    
     bash "$BACKUP_SCRIPT_PATH"
-    
     echo -e " ${G}✔ Test executed.${N}"; read -p "Press Enter..."
 }
 
@@ -241,32 +236,62 @@ remove_backup_only() {
 
 uninstall_all() {
     header
-    draw_box "UNINSTALL" "Delete Everything?" "$R"
-    echo -ne " ${Y}➤${N} Confirm 'yes': "; read CONFIRM
+    draw_box "UNINSTALL" "This will delete the Dashboard & Bot." "$R"
+    echo -ne " ${Y}➤${N} Type 'yes' to confirm: "; read CONFIRM
     if [ "$CONFIRM" == "yes" ]; then
-        if [ -d "$INSTALL_DIR" ]; then cd "$INSTALL_DIR"; docker compose down >/dev/null 2>&1; fi
+        # Stop containers
+        if [ -d "$INSTALL_DIR" ]; then 
+            cd "$INSTALL_DIR"
+            docker compose -p "$PROJECT_NAME" down >/dev/null 2>&1
+        fi
+        
+        # Remove Files
         rm -rf "$INSTALL_DIR" "$BACKUP_SCRIPT_PATH"
         (crontab -l 2>/dev/null | grep -vF "$BACKUP_SCRIPT_PATH") | crontab -
-        echo -e " ${G}✔ Deleted.${N}"
+        
+        # Ask for Data wipe
+        echo ""
+        echo -e " ${R}⚠ Do you want to delete ALL VPN data & users? (Docker Volumes)${N}"
+        echo -ne " ${Y}➤${N} Type 'delete' to wipe data (or Enter to keep): "; read WIPE
+        
+        if [ "$WIPE" == "delete" ]; then
+            docker volume rm ${PROJECT_NAME}_conf ${PROJECT_NAME}_data ${PROJECT_NAME}_aconf >/dev/null 2>&1
+            # Fallback for default names
+            docker volume rm wgdashboard_conf wgdashboard_data wgdashboard_aconf >/dev/null 2>&1
+            echo -e " ${G}✔ All data wiped.${N}"
+        else
+            echo -e " ${C}ℹ Data preserved in Docker volumes.${N}"
+        fi
+        
+        echo -e " ${G}✔ Uninstallation complete.${N}"
     fi
     read -p "Press Enter..."
 }
 
 view_logs() {
     header
-    if [ -d "$INSTALL_DIR" ]; then cd "$INSTALL_DIR"; echo -e "${C}Logs (Ctrl+C exit)${N}"; docker compose logs -f --tail=20
+    if [ -d "$INSTALL_DIR" ]; then cd "$INSTALL_DIR"; echo -e "${C}Logs (Ctrl+C exit)${N}"; docker compose -p "$PROJECT_NAME" logs -f --tail=20
     else echo -e "${R}Not installed.${N}"; read -p "Enter..."; fi
 }
 
 update_panel() {
-    if [ -d "$INSTALL_DIR" ]; then cd "$INSTALL_DIR"; docker compose pull; docker compose up -d; docker image prune -f >/dev/null 2>&1; echo -e "${G}✔ Updated.${N}"; else echo -e "${R}Not installed.${N}"; fi; read -p "Enter..."
+    if [ -d "$INSTALL_DIR" ]; then 
+        cd "$INSTALL_DIR"
+        docker compose -p "$PROJECT_NAME" pull
+        docker compose -p "$PROJECT_NAME" up -d
+        docker image prune -f >/dev/null 2>&1
+        echo -e "${G}✔ Updated.${N}"
+    else 
+        echo -e "${R}Not installed.${N}"
+    fi
+    read -p "Enter..."
 }
 
 while true; do
     header
     echo -e " ${G}1)${N} Install Panel"
     echo -e " ${G}2)${N} Update Panel"
-    echo -e " ${G}3)${N} Setup Backup Bot ${Y}(V10)${N}"
+    echo -e " ${G}3)${N} Setup Backup Bot ${Y}(V11)${N}"
     echo -e " ${R}4)${N} Remove Backup Only"
     echo -e " ${B}5)${N} View Logs"
     echo -e " ${R}0)${N} Uninstall All"
