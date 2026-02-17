@@ -1,170 +1,174 @@
 #!/bin/bash
 
 # =========================================================
-#  WGDashboard Manager - V14 (UnknownZero UI Edition)
+#  WGDashboard Manager - V15 (Remastered UI)
 #  Author: UnknownZero
-#  Features: Live Status Check, System Stats, Modern UI
+#  Fixes: IP Detection Bug, Color Rendering, New Logo
 # =========================================================
 
-# --- Palette ---
-RESET='\033[0m'
-BOLD='\033[1m'
-
-# Foreground
-WHITE='\033[37m'
-BLACK='\033[30m'
-RED='\033[31m'
-GREEN='\033[32m'
-YELLOW='\033[33m'
-BLUE='\033[34m'
-MAGENTA='\033[35m'
-CYAN='\033[36m'
-GRAY='\033[90m'
-
-# Background
-BG_RED='\033[41m'
-BG_GREEN='\033[42m'
-BG_BLUE='\033[44m'
+# --- Safe Color Definitions (tput fallback) ---
+if command -v tput >/dev/null 2>&1; then
+    RED=$(tput setaf 1)
+    GREEN=$(tput setaf 2)
+    YELLOW=$(tput setaf 3)
+    BLUE=$(tput setaf 4)
+    MAGENTA=$(tput setaf 5)
+    CYAN=$(tput setaf 6)
+    WHITE=$(tput setaf 7)
+    BOLD=$(tput bold)
+    RESET=$(tput sgr0)
+else
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[0;33m'
+    BLUE='\033[0;34m'
+    MAGENTA='\033[0;35m'
+    CYAN='\033[0;36m'
+    WHITE='\033[0;37m'
+    BOLD='\033[1m'
+    RESET='\033[0m'
+fi
 
 # --- Configuration ---
 INSTALL_DIR="/opt/wgdashboard"
 BACKUP_SCRIPT_PATH="/usr/local/bin/wgd-backup.sh"
 PROJECT_NAME="wgdashboard"
-VERSION="14.0"
+VERSION="15.0"
 AUTHOR="UnknownZero"
+
+# --- Robust IP Detection Function ---
+get_public_ip() {
+    # Try source 1
+    local ip=$(curl -s --max-time 2 https://api.ipify.org)
+    if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "$ip"; return; fi
+    
+    # Try source 2
+    ip=$(curl -s --max-time 2 https://ipv4.icanhazip.com)
+    if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "$ip"; return; fi
+    
+    # Fallback
+    echo "Unknown"
+}
 
 # --- UI Functions ---
 
-# Centered Text
+draw_line() {
+    printf "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
+}
+
 center_text() {
     local text="$1"
+    local color="$2"
     local width=70
     local padding=$(( (width - ${#text}) / 2 ))
-    printf "%*s%s%*s\n" $padding "" "$text" $padding ""
+    printf "%*s${color}%s${RESET}%*s\n" $padding "" "$text" $padding ""
 }
 
-# Drawing Lines
-draw_line() {
-    printf "${GRAY}──────────────────────────────────────────────────────────────────────${RESET}\n"
-}
-
-# Header with ASCII Art & Info
 header() {
     clear
-    echo -e "${MAGENTA}"
+    # New WG Logo
+    echo -e "${CYAN}"
     cat << "EOF"
-  _    _       _                              ______              
- | |  | |     | |                            |___  /              
- | |  | |_ __ | | ___ __   _____      ___ __    / / ___ _ __ ___  
- | |  | | '_ \| |/ / '_ \ / _ \ \ /\ / / '_ \  / / / _ \ '__/ _ \ 
- | |__| | | | |   <| | | | (_) \ V  V /| | | |/ /_|  __/ | | (_) |
-  \____/|_| |_|_|\_\_| |_|\___/ \_/\_/ |_| |_/_____\___|_|  \___/ 
-                                                                  
+  _       __   ______     ____            __     
+ | |     / /  / ____/    / __ \  ____    / /     
+ | | /| / /  / / __     / / / / / __ \  / /      
+ | |/ |/ /  / /_/ /    / /_/ / / /_/ / /_/       
+ |__/|__/   \____/    /_____/  \____/ (_)        
+                                                 
 EOF
     echo -e "${RESET}"
-    center_text "${BOLD}WGDashboard Manager - V${VERSION}${RESET}"
-    center_text "Powered by ${CYAN}${AUTHOR}${RESET}"
-    draw_line
     
-    # System Stats
-    SERVER_IP=$(curl -s --max-time 2 ifconfig.me || hostname -I | awk '{print $1}')
-    UPTIME=$(uptime -p | sed 's/up //')
-    RAM=$(free -h | awk '/Mem:/ {print $3 "/" $2}')
+    center_text "WGDashboard Manager v${VERSION}" "${BOLD}${WHITE}"
+    center_text "By ${AUTHOR}" "${MAGENTA}"
+    echo ""
     
-    echo -e " ${BOLD}SYSTEM INFO:${RESET}"
-    echo -e " ${GRAY}├─ IP:${RESET} ${WHITE}$SERVER_IP${RESET}"
-    echo -e " ${GRAY}├─ RAM:${RESET} ${WHITE}$RAM${RESET}"
-    echo -e " ${GRAY}└─ Uptime:${RESET} ${WHITE}$UPTIME${RESET}"
+    # System Info Gathering
+    local sys_ip=$(get_public_ip)
+    local sys_ram=$(free -h | awk '/Mem:/ {print $3 "/" $2}')
+    local sys_uptime=$(uptime -p | sed 's/up //')
     
-    draw_line
+    # Status Box
+    echo -e "${BLUE}┌─────────────────────[ ${BOLD}${WHITE}SYSTEM STATUS${BLUE} ]─────────────────────┐${RESET}"
+    printf "${BLUE}│${RESET}  %-14s : %-35s  ${BLUE}│${RESET}\n" "${GRAY}Server IP${RESET}" "${WHITE}${sys_ip}${RESET}"
+    printf "${BLUE}│${RESET}  %-14s : %-35s  ${BLUE}│${RESET}\n" "${GRAY}RAM Usage${RESET}" "${WHITE}${sys_ram}${RESET}"
+    printf "${BLUE}│${RESET}  %-14s : %-35s  ${BLUE}│${RESET}\n" "${GRAY}Uptime${RESET}" "${WHITE}${sys_uptime}${RESET}"
     
-    # Application Status Logic
-    echo -e " ${BOLD}APPLICATION STATUS:${RESET}"
+    # App Status Logic
     if [ -d "$INSTALL_DIR" ]; then
-        # Check Docker Status
         if docker compose -p "$PROJECT_NAME" ps | grep -q "Up"; then
-            STATUS="${BG_GREEN}${BLACK} ONLINE ${RESET}"
+             STATUS="${GREEN}● ONLINE${RESET}"
         else
-            STATUS="${BG_RED}${WHITE} OFFLINE ${RESET}"
+             STATUS="${RED}● OFFLINE${RESET}"
         fi
         
-        # Extract Port from compose.yaml
-        PORT=$(grep "wgd_port=" "$INSTALL_DIR/compose.yaml" 2>/dev/null | cut -d'=' -f2)
-        PORT=${PORT:-"Unknown"}
+        # Get Port safely
+        local port=$(grep "wgd_port=" "$INSTALL_DIR/compose.yaml" 2>/dev/null | cut -d'=' -f2 | tr -d ' "')
+        port=${port:-"????"}
         
-        # Extract Username
-        USER=$(grep "username=" "$INSTALL_DIR/compose.yaml" 2>/dev/null | cut -d'=' -f2 | tr -d '"')
-        USER=${USER:-"Unknown"}
+        printf "${BLUE}│${RESET}  %-14s : %-35s  ${BLUE}│${RESET}\n" "${GRAY}Panel Status${RESET}" "${STATUS}"
+        printf "${BLUE}│${RESET}  %-14s : %-35s  ${BLUE}│${RESET}\n" "${GRAY}Dashboard URL${RESET}" "http://${sys_ip}:${CYAN}${port}${RESET}"
         
-        echo -e " ${GRAY}├─ Status:${RESET} $STATUS"
-        echo -e " ${GRAY}├─ URL:${RESET}    http://${SERVER_IP}:${CYAN}${PORT}${RESET}"
-        echo -e " ${GRAY}└─ User:${RESET}   ${YELLOW}${USER}${RESET}"
-        
-        # Backup Check
         if [ -f "$BACKUP_SCRIPT_PATH" ]; then
-             echo -e " ${GRAY}└─ Backup:${RESET} ${GREEN}Active (Cron)${RESET}"
+             printf "${BLUE}│${RESET}  %-14s : %-35s  ${BLUE}│${RESET}\n" "${GRAY}Auto-Backup${RESET}" "${GREEN}Active${RESET}"
         else
-             echo -e " ${GRAY}└─ Backup:${RESET} ${RED}Not Configured${RESET}"
+             printf "${BLUE}│${RESET}  %-14s : %-35s  ${BLUE}│${RESET}\n" "${GRAY}Auto-Backup${RESET}" "${RED}Disabled${RESET}"
         fi
     else
-        echo -e " ${GRAY}└─ Status:${RESET} ${RED}NOT INSTALLED${RESET}"
+        printf "${BLUE}│${RESET}  %-14s : %-35s  ${BLUE}│${RESET}\n" "${GRAY}Panel Status${RESET}" "${RED}NOT INSTALLED${RESET}"
     fi
-    draw_line
+    echo -e "${BLUE}└────────────────────────────────────────────────────────────┘${RESET}"
     echo ""
 }
 
-# Message Box
-msg_box() {
-    local type="$1"
-    local text="$2"
-    case $type in
-        "info")  echo -e " ${BLUE}ℹ${RESET}  $text" ;;
-        "success") echo -e " ${GREEN}✔${RESET}  $text" ;;
-        "warn")  echo -e " ${YELLOW}⚠${RESET}  $text" ;;
-        "error") echo -e " ${RED}✖${RESET}  $text" ;;
-        "input") echo -ne " ${MAGENTA}➤${RESET}  $text" ;;
-    esac
+# --- Standardized Input/Output ---
+print_info() { echo -e " ${BLUE}ℹ${RESET}  $1"; }
+print_success() { echo -e " ${GREEN}✔${RESET}  $1"; }
+print_error() { echo -e " ${RED}✖${RESET}  $1"; }
+print_warn() { echo -e " ${YELLOW}⚠${RESET}  $1"; }
+
+get_input() {
+    local prompt="$1"
+    local default="$2"
+    if [ -n "$default" ]; then
+        echo -ne " ${MAGENTA}➤${RESET} $prompt ${GRAY}[$default]${RESET}: "
+    else
+        echo -ne " ${MAGENTA}➤${RESET} $prompt: "
+    fi
 }
 
 # --- Check Root ---
-if [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}Error: Please run as root.${RESET}"
-    exit 1
-fi
+if [ "$EUID" -ne 0 ]; then print_error "Please run as root."; exit 1; fi
 
 # --- Modules ---
 
 install_panel() {
     header
-    msg_box "info" "Starting Installation Wizard..."
+    print_info "Starting Installation..."
     echo ""
     
-    msg_box "input" "Public IP [Default: Auto]: "; read IP_IN
-    DETECTED_IP=$(curl -s --max-time 3 ifconfig.me || echo "127.0.0.1")
-    PUBLIC_IP=${IP_IN:-$DETECTED_IP}
+    local detected_ip=$(get_public_ip)
+    get_input "Public IP" "$detected_ip"; read IP_IN
+    PUBLIC_IP=${IP_IN:-$detected_ip}
     
-    msg_box "input" "Username [Default: admin]: "; read USER_IN
+    get_input "Username" "admin"; read USER_IN
     WGD_USER=${USER_IN:-admin}
     
     while true; do
-        msg_box "input" "Password: "; read -s WGD_PASS; echo ""
+        get_input "Password"; read -s WGD_PASS; echo ""
         if [ -n "$WGD_PASS" ]; then break; fi
-        msg_box "error" "Password cannot be empty!"
+        print_error "Password is required."
     done
     
-    msg_box "input" "Panel Port [Default: 10086]: "; read PORT_IN
+    get_input "Port" "10086"; read PORT_IN
     WGD_PORT=${PORT_IN:-10086}
 
     echo ""
-    msg_box "info" "Configuring System & Docker..."
-    
-    # Sysctl
+    print_info "Configuring Environment..."
     if ! grep -q "^net.ipv4.ip_forward=1" /etc/sysctl.conf; then echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf; fi
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
 
-    # Docker
     if ! docker compose version &>/dev/null; then
-        msg_box "warn" "Docker not found. Installing..."
+        print_warn "Installing Docker Engine..."
         apt-get update -qq >/dev/null 2>&1
         apt-get install -y -qq ca-certificates curl gnupg lsb-release >/dev/null 2>&1
         mkdir -p /etc/apt/keyrings
@@ -174,9 +178,9 @@ install_panel() {
         apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null 2>&1
     fi
 
-    msg_box "info" "Deploying Containers..."
+    print_info "Deploying Container..."
     mkdir -p "$INSTALL_DIR"; cd "$INSTALL_DIR"
-
+    
     cat <<EOF > compose.yaml
 services:
   wgdashboard:
@@ -205,52 +209,45 @@ volumes:
 EOF
     docker compose -p "$PROJECT_NAME" up -d >/dev/null 2>&1
     
-    # UFW
     if command -v ufw &>/dev/null && ufw status | grep -q "active"; then
         ufw allow $WGD_PORT/tcp >/dev/null; ufw allow 51820/udp >/dev/null
     fi
 
-    echo ""
-    msg_box "success" "Installation Complete!"
-    read -p "Press Enter to return..."
+    print_success "Installation Complete!"
+    read -p "Press Enter to continue..."
 }
 
 setup_backup_bot() {
     header
-    msg_box "info" "Telegram Auto-Backup Setup"
+    print_info "Telegram Auto-Backup Setup"
     echo ""
     
-    # Check Deps
-    if ! command -v zip &>/dev/null; then 
-        msg_box "warn" "Installing dependencies..."
-        apt-get update -qq >/dev/null; apt-get install -y -qq zip curl cron >/dev/null
-    fi
+    apt-get update -qq >/dev/null 2>&1; apt-get install -y -qq zip curl cron >/dev/null 2>&1
 
-    msg_box "input" "Bot Token: "; read TG_TOKEN
-    msg_box "input" "Chat ID: "; read TG_CHATID
+    get_input "Bot Token"; read TG_TOKEN
+    get_input "Chat ID"; read TG_CHATID
     
     if [[ -z "$TG_TOKEN" || -z "$TG_CHATID" ]]; then
-        msg_box "error" "Missing credentials."
+        print_error "Credentials missing."
         read -p "Enter..."
         return
     fi
 
-    msg_box "info" "Verifying Connection..."
-    TEST=$(curl -s --max-time 10 -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" -d chat_id="${TG_CHATID}" -d text="🔌 Connection Verified by UnknownZero Script")
+    print_info "Testing Connection..."
+    TEST=$(curl -s --max-time 10 -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" -d chat_id="${TG_CHATID}" -d text="🔌 Verified by UnknownZero Script")
     
     if [[ "$TEST" != *"\"ok\":true"* ]]; then
-        msg_box "error" "Connection Failed! Check Token/ID."
+        print_error "Connection Failed! Check Token/ID."
         read -p "Enter..."
         return
     fi
-    msg_box "success" "Connected to Telegram!"
+    print_success "Verified!"
 
     echo ""
-    msg_box "input" "Server Name [Default: WGD-Backup]: "; read PREFIX_IN
+    get_input "Server Name" "WGD-Backup"; read PREFIX_IN
     BACKUP_PREFIX=${PREFIX_IN:-WGD-Backup}
     CLEAN_PREFIX=$(echo "$BACKUP_PREFIX" | tr -dc 'a-zA-Z0-9-._')
 
-    # Generate Script
     rm -f "$BACKUP_SCRIPT_PATH"; touch "$BACKUP_SCRIPT_PATH"; chmod +x "$BACKUP_SCRIPT_PATH"
     
     echo "#!/bin/bash" > "$BACKUP_SCRIPT_PATH"
@@ -290,36 +287,36 @@ rm -rf "${TEMP_DIR}"
 EOS
     
     echo ""
-    msg_box "info" "Select Frequency:"
-    echo -e "   ${CYAN}1)${RESET} 30 Minutes"
-    echo -e "   ${CYAN}2)${RESET} 6 Hours"
+    print_info "Select Backup Frequency:"
+    echo -e "   ${CYAN}1)${RESET} Every 30 Minutes"
+    echo -e "   ${CYAN}2)${RESET} Every 6 Hours"
     echo -e "   ${CYAN}3)${RESET} Daily"
-    msg_box "input" "Option: "; read FREQ
+    get_input "Option"; read FREQ
     
     case $FREQ in
         1) CRON="*/30 * * * *" ;;
         2) CRON="0 */6 * * *" ;; 
-        3) msg_box "input" "Hour (0-23): "; read H; CRON="0 ${H:-0} * * *" ;;
+        3) get_input "Hour (0-23)"; read H; CRON="0 ${H:-0} * * *" ;;
         *) CRON="0 3 * * *" ;;
     esac
 
     (crontab -l 2>/dev/null | grep -vF "$BACKUP_SCRIPT_PATH") | crontab -
     (crontab -l 2>/dev/null; echo "$CRON $BACKUP_SCRIPT_PATH") | crontab -
     
-    msg_box "success" "Scheduled! Sending Test Backup..."
+    print_success "Backup Scheduled! Sending test file..."
     bash "$BACKUP_SCRIPT_PATH"
-    read -p "Press Enter..."
+    read -p "Press Enter to continue..."
 }
 
 restore_backup() {
     header
-    msg_box "warn" "Restore Wizard - Overwrites Data!"
+    print_warn "Restore Wizard (Overwrites Data)"
     echo ""
     
     mapfile -t BACKUPS < <(ls /root/*.zip 2>/dev/null)
     if [ ${#BACKUPS[@]} -eq 0 ]; then
-        msg_box "error" "No .zip files found in /root/"
-        read -p "Enter..."
+        print_error "No .zip files found in /root/"
+        read -p "Press Enter..."
         return
     fi
 
@@ -331,9 +328,9 @@ restore_backup() {
     done
     echo ""
     
-    msg_box "input" "Select File Number: "; read CHOICE
+    get_input "Select File #"; read CHOICE
     if [[ ! "$CHOICE" =~ ^[0-9]+$ ]] || [ "$CHOICE" -lt 1 ] || [ "$CHOICE" -gt "${#BACKUPS[@]}" ]; then
-        msg_box "error" "Invalid selection."
+        print_error "Invalid selection."
         read -p "Enter..."
         return
     fi
@@ -341,60 +338,54 @@ restore_backup() {
     FILE_FULL_PATH="${BACKUPS[$((CHOICE-1))]}"
     
     echo ""
-    msg_box "input" "Type 'restore' to confirm: "; read CONFIRM
+    get_input "Type 'restore' to confirm"; read CONFIRM
     if [ "$CONFIRM" == "restore" ]; then
-        msg_box "info" "Restoring..."
+        print_info "Restoring..."
         apt-get install -y -qq unzip >/dev/null
         
-        # Stop
         if [ -d "$INSTALL_DIR" ]; then cd "$INSTALL_DIR"; docker compose -p "$PROJECT_NAME" down >/dev/null 2>&1; fi
         
-        # Extract
         TEMP_RESTORE=$(mktemp -d)
         unzip -q "$FILE_FULL_PATH" -d "$TEMP_RESTORE"
         SOURCE_DIR=$(find "$TEMP_RESTORE" -type d -name "wireguard_conf" | xargs dirname | head -n 1)
 
-        # Detect Volumes
         VOL_CONF=$(docker volume inspect ${PROJECT_NAME}_conf --format '{{.Mountpoint}}' 2>/dev/null)
         VOL_DATA=$(docker volume inspect ${PROJECT_NAME}_data --format '{{.Mountpoint}}' 2>/dev/null)
         VOL_ACONF=$(docker volume inspect ${PROJECT_NAME}_aconf --format '{{.Mountpoint}}' 2>/dev/null)
         
-        # Fallback
         if [ -z "$VOL_CONF" ]; then VOL_CONF=$(docker volume inspect wgdashboard_conf --format '{{.Mountpoint}}' 2>/dev/null); fi
         if [ -z "$VOL_DATA" ]; then VOL_DATA=$(docker volume inspect wgdashboard_data --format '{{.Mountpoint}}' 2>/dev/null); fi
         if [ -z "$VOL_ACONF" ]; then VOL_ACONF=$(docker volume inspect wgdashboard_aconf --format '{{.Mountpoint}}' 2>/dev/null); fi
 
-        # Copy
         if [ -n "$VOL_CONF" ] && [ -d "$SOURCE_DIR/wireguard_conf" ]; then rm -rf "$VOL_CONF"/*; cp -r "$SOURCE_DIR/wireguard_conf"/* "$VOL_CONF/"; fi
         if [ -n "$VOL_DATA" ] && [ -d "$SOURCE_DIR/dashboard_data" ]; then rm -rf "$VOL_DATA"/*; cp -r "$SOURCE_DIR/dashboard_data"/* "$VOL_DATA/"; fi
         if [ -n "$VOL_ACONF" ] && [ -d "$SOURCE_DIR/amnezia_conf" ]; then rm -rf "$VOL_ACONF"/*; cp -r "$SOURCE_DIR/amnezia_conf"/* "$VOL_ACONF/"; fi
         
-        # Permissions & Start
         chmod -R 755 "$VOL_CONF" "$VOL_DATA" 2>/dev/null
         docker compose -p "$PROJECT_NAME" up -d >/dev/null 2>&1
         rm -rf "$TEMP_RESTORE"
-        msg_box "success" "Restore Complete!"
+        print_success "Restore Complete!"
     fi
-    read -p "Enter..."
+    read -p "Press Enter..."
 }
 
 uninstall_all() {
     header
-    msg_box "warn" "UNINSTALLATION - DANGER ZONE"
-    msg_box "input" "Type 'yes' to delete Dashboard & Bot: "; read CONFIRM
+    print_warn "DANGER: Uninstalling Everything"
+    get_input "Type 'yes' to confirm"; read CONFIRM
     if [ "$CONFIRM" == "yes" ]; then
         if [ -d "$INSTALL_DIR" ]; then cd "$INSTALL_DIR"; docker compose -p "$PROJECT_NAME" down >/dev/null 2>&1; fi
         rm -rf "$INSTALL_DIR" "$BACKUP_SCRIPT_PATH"
         (crontab -l 2>/dev/null | grep -vF "$BACKUP_SCRIPT_PATH") | crontab -
         
         echo ""
-        msg_box "input" "Type 'delete' to wipe all VPN DATA: "; read WIPE
+        get_input "Type 'delete' to wipe ALL VPN DATA"; read WIPE
         if [ "$WIPE" == "delete" ]; then
              docker volume rm ${PROJECT_NAME}_conf ${PROJECT_NAME}_data ${PROJECT_NAME}_aconf >/dev/null 2>&1
              docker volume rm wgdashboard_conf wgdashboard_data wgdashboard_aconf >/dev/null 2>&1
-             msg_box "success" "Data Wiped."
+             print_success "Data Wiped."
         fi
-        msg_box "success" "Uninstalled."
+        print_success "Uninstalled."
     fi
     read -p "Enter..."
 }
@@ -402,43 +393,43 @@ uninstall_all() {
 remove_backup_only() {
     (crontab -l 2>/dev/null | grep -vF "$BACKUP_SCRIPT_PATH") | crontab -
     rm -f "$BACKUP_SCRIPT_PATH"
-    msg_box "success" "Backup disabled."
+    print_success "Backup Disabled."
     read -p "Enter..."
 }
 
 update_panel() {
     if [ -d "$INSTALL_DIR" ]; then 
         cd "$INSTALL_DIR"
-        msg_box "info" "Updating..."
+        print_info "Updating..."
         docker compose -p "$PROJECT_NAME" pull
         docker compose -p "$PROJECT_NAME" up -d
         docker image prune -f >/dev/null 2>&1
-        msg_box "success" "Updated."
+        print_success "Updated."
     else
-        msg_box "error" "Not installed."
+        print_error "Not installed."
     fi
     read -p "Enter..."
 }
 
 view_logs() {
-    if [ -d "$INSTALL_DIR" ]; then cd "$INSTALL_DIR"; docker compose -p "$PROJECT_NAME" logs -f --tail=50; else msg_box "error" "Not installed."; read -p "Enter..."; fi
+    if [ -d "$INSTALL_DIR" ]; then cd "$INSTALL_DIR"; docker compose -p "$PROJECT_NAME" logs -f --tail=50; else print_error "Not installed."; read -p "Enter..."; fi
 }
 
 # --- Main Menu Loop ---
 while true; do
     header
     echo -e " ${BOLD}MAIN MENU:${RESET}"
-    echo -e " ${GREEN}1.${RESET} Install Dashboard      ${GRAY}(Setup VPN Panel)${RESET}"
-    echo -e " ${GREEN}2.${RESET} Update Dashboard       ${GRAY}(Keep Data)${RESET}"
-    echo -e " ${GREEN}3.${RESET} Setup Backup Bot       ${GRAY}(Auto Telegram)${RESET}"
-    echo -e " ${GREEN}4.${RESET} Restore Backup         ${GRAY}(From .zip)${RESET}"
-    echo -e " ${BLUE}5.${RESET} View Logs              ${GRAY}(Debugging)${RESET}"
-    echo -e " ${RED}6.${RESET} Disable Backup Only    ${GRAY}(Stop Cron)${RESET}"
-    echo -e " ${RED}0.${RESET} Uninstall Everything   ${GRAY}(Delete All)${RESET}"
+    printf "  ${GREEN}%-2s${RESET} %-25s ${GRAY}%s${RESET}\n" "1" "Install Dashboard" "(Setup VPN Panel)"
+    printf "  ${GREEN}%-2s${RESET} %-25s ${GRAY}%s${RESET}\n" "2" "Update Dashboard" "(Keep Data)"
+    printf "  ${GREEN}%-2s${RESET} %-25s ${GRAY}%s${RESET}\n" "3" "Setup Backup Bot" "(Telegram Auto)"
+    printf "  ${GREEN}%-2s${RESET} %-25s ${GRAY}%s${RESET}\n" "4" "Restore Backup" "(From .zip)"
+    printf "  ${BLUE}%-2s${RESET} %-25s ${GRAY}%s${RESET}\n" "5" "View Logs" "(Debug)"
+    printf "  ${RED}%-2s${RESET} %-25s ${GRAY}%s${RESET}\n" "6" "Disable Backup" "(Stop Cron)"
+    printf "  ${RED}%-2s${RESET} %-25s ${GRAY}%s${RESET}\n" "0" "Uninstall" "(Delete All)"
     echo ""
-    echo -e " ${GRAY}9. Exit${RESET}"
+    echo -e "  ${GRAY}9. Exit${RESET}"
     echo ""
-    msg_box "input" "Select Option: "; read OPTION
+    get_input "Option"; read OPTION
     
     case $OPTION in
         1) install_panel ;;
