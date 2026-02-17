@@ -1,177 +1,134 @@
 #!/bin/bash
 
-# ==========================================
-#  WGDashboard Ultimate Manager - Pro GUI
-# ==========================================
+# =========================================================
+#  WGDashboard Manager - Minimalist Pro Edition
+# =========================================================
 
-# --- تنظیمات رنگ‌بندی (Palette) ---
-# Bold Colors
-B_RED='\033[1;31m'
-B_GREEN='\033[1;32m'
-B_YELLOW='\033[1;33m'
-B_BLUE='\033[1;34m'
-B_PURPLE='\033[1;35m'
-B_CYAN='\033[1;36m'
-B_WHITE='\033[1;37m'
+# --- Palette (Cyberpunk Theme) ---
+C_RESET='\033[0m'
+C_RED='\033[1;31m'
+C_GREEN='\033[1;32m'
+C_YELLOW='\033[1;33m'
+C_BLUE='\033[1;34m'
+C_PURPLE='\033[1;35m'
+C_CYAN='\033[1;36m'
+C_WHITE='\033[1;37m'
+C_GRAY='\033[0;90m'
 
-# Regular Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-GRAY='\033[0;90m'
-NC='\033[0m' # No Color
-
-# --- متغیرهای سراسری ---
+# --- Configuration ---
 INSTALL_DIR="/opt/wgdashboard"
 BACKUP_SCRIPT_PATH="/usr/local/bin/wgd-backup.sh"
 
-# --- بررسی دسترسی روت ---
+# --- System Check ---
 if [ "$EUID" -ne 0 ]; then
-  echo -e "${B_RED}❌ Error: Please run this script as root!${NC}"
-  echo -e "${GRAY}   Try: sudo bash $0${NC}"
+  echo -e "${C_RED}➜ Error: Must run as root.${C_RESET}"
   exit 1
 fi
 
-# --- توابع گرافیکی و کمکی ---
+# --- Helper Functions ---
 
-# هدر اصلی برنامه
+# Spinner Animation
+spinner() {
+    local pid=$1
+    local delay=0.1
+    local spinstr='|/-\'
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
+
+# Dynamic Header
 draw_header() {
     clear
-    echo -e "${B_PURPLE}"
-    echo " __          __  _____   _____            _     _ board "
-    echo " \ \        / / / ____| |  __ \          | |   | |      "
-    echo "  \ \  /\  / / | |  __  | |  | | __ _ ___| |__ | |      "
-    echo "   \ \/  \/ /  | | |_ | | |  | |/ _\` / __| '_ \| |      "
-    echo "    \  /\  /   | |__| | | |__| | (_| \__ \ | | |_|      "
-    echo "     \/  \/     \_____| |_____/ \__,_|___/_| |_(_)      "
-    echo -e "${NC}"
-    echo -e "${B_CYAN}   🚀 Ultimate Management Tool for WireGuard Dashboard${NC}"
-    echo -e "${GRAY}   ===================================================${NC}"
+    # Get System Info
+    SERVER_IP=$(curl -s https://api.ipify.org || hostname -I | awk '{print $1}')
+    UPTIME=$(uptime -p | sed 's/up //')
+    RAM_USAGE=$(free -h | awk '/Mem:/ {print $3 "/" $2}')
+
+    echo -e "${C_PURPLE}"
+    echo "  _       __   ______     ____            __     "
+    echo " | |     / /  / ____/    / __ \  ____    / /     "
+    echo " | | /| / /  / / __     / / / / / __ \  / /      "
+    echo " | |/ |/ /  / /_/ /    / /_/ / / /_/ / /_/       "
+    echo " |__/|__/   \____/    /_____/  \____/ (_)        "
+    echo -e "${C_RESET}"
+    
+    echo -e " ${C_GRAY}───────────────────────────────────────────────────${C_RESET}"
+    echo -e " ${C_CYAN}SYSTEM STATUS${C_RESET}"
+    echo -e " ${C_GRAY}➜ IP:${C_RESET} ${C_WHITE}$SERVER_IP${C_RESET}"
+    echo -e " ${C_GRAY}➜ RAM:${C_RESET} ${C_WHITE}$RAM_USAGE${C_RESET}  ${C_GRAY}➜ Uptime:${C_RESET} ${C_WHITE}$UPTIME${C_RESET}"
+    echo -e " ${C_GRAY}───────────────────────────────────────────────────${C_RESET}"
     echo ""
 }
 
-# خط جداکننده
-draw_line() {
-    echo -e "${GRAY}-------------------------------------------------------${NC}"
-}
-
-# پیام موفقیت
-msg_success() {
-    echo -e "${B_GREEN}✔ SUCCESS:${NC} $1"
-}
-
-# پیام اطلاعات
-msg_info() {
-    echo -e "${B_BLUE}ℹ INFO:${NC} $1"
-}
-
-# پیام هشدار
-msg_warn() {
-    echo -e "${B_YELLOW}⚠ WARNING:${NC} $1"
-}
-
-# دریافت ورودی زیبا
-ask_input() {
+# Input Prompt Style
+ask() {
     local prompt="$1"
     local default="$2"
     if [ -n "$default" ]; then
-        echo -ne "${B_PURPLE}➤ ${prompt} ${GRAY}[Default: ${default}]${NC}: "
+        echo -ne " ${C_PURPLE}➤${C_RESET} $prompt ${C_GRAY}($default)${C_RESET}: "
     else
-        echo -ne "${B_PURPLE}➤ ${prompt}${NC}: "
+        echo -ne " ${C_PURPLE}➤${C_RESET} $prompt: "
     fi
 }
 
-# مکث برای خواندن
-pause() {
-    echo ""
-    read -p "Press [Enter] to return to menu..."
-}
+# Notification Styles
+notify_success() { echo -e " ${C_GREEN}✔ $1${C_RESET}"; }
+notify_info() { echo -e " ${C_BLUE}ℹ $1${C_RESET}"; }
+notify_warn() { echo -e " ${C_YELLOW}⚠ $1${C_RESET}"; }
+press_enter() { echo ""; read -p " Press [Enter] to continue..." dummy; }
 
-# تابع انتظار برای قفل APT
-wait_for_apt() {
-  msg_info "Checking system package manager locks..."
-  while fuser /var/lib/dpkg/lock >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
-    echo -ne "."
-    sleep 2
-  done
-  echo ""
-}
+# --- Core Modules ---
 
-# --- توابع عملیاتی ---
-
-install_dashboard() {
+install_panel() {
     draw_header
-    echo -e "${B_GREEN}🛠️  INSTALLATION WIZARD${NC}"
-    draw_line
-    echo -e "${GRAY}This process will install Docker, configure the firewall,${NC}"
-    echo -e "${GRAY}and set up the WGDashboard container.${NC}"
+    echo -e " ${C_WHITE}INSTALLATION WIZARD${C_RESET}"
     echo ""
 
     # Sysctl
-    msg_info "Enabling IP Forwarding..."
+    notify_info "Configuring Kernel..."
     if ! grep -q "^net.ipv4.ip_forward=1" /etc/sysctl.conf; then
         echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
     fi
-    sysctl -w net.ipv4.ip_forward=1 > /dev/null
-    sysctl -p > /dev/null
+    sysctl -w net.ipv4.ip_forward=1 > /dev/null 2>&1
 
-    # Docker Check
+    # Docker
     if ! command -v docker &> /dev/null; then
-        msg_warn "Docker not found. Installing now..."
-        wait_for_apt
-        apt-get update -qq
-        apt-get install -y -qq ca-certificates curl gnupg lsb-release > /dev/null
-        mkdir -p /etc/apt/keyrings
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-          $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-        wait_for_apt
-        apt-get update -qq
-        apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin > /dev/null
-        msg_success "Docker installed successfully."
+        notify_info "Installing Docker Engine..."
+        (
+            apt-get update -qq
+            apt-get install -y -qq ca-certificates curl gnupg lsb-release
+            mkdir -p /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+            apt-get update -qq
+            apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
+        ) & spinner $!
+        notify_success "Docker Installed."
     else
-        msg_success "Docker is already installed."
+        notify_success "Docker is ready."
     fi
 
     echo ""
-    echo -e "${B_CYAN}📝 Configuration Setup${NC}"
+    echo -e " ${C_CYAN}CONFIGURATION${C_RESET}"
     
-    # Auto IP
-    AUTO_IP=$(curl -s https://api.ipify.org || echo "127.0.0.1")
-    ask_input "Enter Public IP" "$AUTO_IP"
-    read PUBLIC_IP
-    PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
+    SERVER_IP=$(curl -s https://api.ipify.org || echo "127.0.0.1")
+    ask "Public IP" "$SERVER_IP"; read IP_IN; PUBLIC_IP=${IP_IN:-$SERVER_IP}
+    ask "Username" "admin"; read USER_IN; WGD_USER=${USER_IN:-admin}
+    ask "Password" ""; read -s WGD_PASS; echo ""
+    if [ -z "$WGD_PASS" ]; then notify_warn "Password required!"; press_enter; return; fi
+    ask "Panel Port" "10086"; read PORT_IN; WGD_PORT=${PORT_IN:-10086}
+    ask "WireGuard Port" "51820"; read WG_IN; WG_PORT=${WG_IN:-51820}
 
-    ask_input "Dashboard Username" "admin"
-    read WGD_USER
-    WGD_USER=${WGD_USER:-admin}
-
-    ask_input "Dashboard Password" ""
-    read -s WGD_PASS
-    echo "" 
-    if [ -z "$WGD_PASS" ]; then 
-        echo -e "${B_RED}❌ Password cannot be empty!${NC}"
-        pause
-        return
-    fi
-
-    ask_input "Dashboard Port" "10086"
-    read WGD_PORT
-    WGD_PORT=${WGD_PORT:-10086}
-
-    ask_input "WireGuard UDP Port" "51820"
-    read WG_PORT
-    WG_PORT=${WG_PORT:-51820}
-
-    # Setup Directory
-    msg_info "Creating directories..."
+    notify_info "Deploying Container..."
     mkdir -p "$INSTALL_DIR"
     cd "$INSTALL_DIR"
 
-    # Create Compose
     cat <<EOF > compose.yaml
 services:
   wgdashboard:
@@ -193,98 +150,78 @@ services:
       - data:/data
     cap_add:
       - NET_ADMIN
-
 volumes:
   aconf:
   conf:
   data:
 EOF
 
+    docker compose up -d > /dev/null 2>&1
+    
     # Firewall
-    msg_info "Configuring Firewall (UFW)..."
-    if command -v ufw &> /dev/null && ufw status | grep -q "Status: active"; then
-        ufw allow $WGD_PORT/tcp > /dev/null
-        ufw allow $WG_PORT/udp > /dev/null
-        ufw reload > /dev/null
-        msg_success "Ports $WGD_PORT (TCP) and $WG_PORT (UDP) opened."
-    else
-        msg_warn "UFW is inactive or missing. Skipping firewall."
+    if command -v ufw &> /dev/null && ufw status | grep -q "active"; then
+        ufw allow $WGD_PORT/tcp >/dev/null
+        ufw allow $WG_PORT/udp >/dev/null
+        notify_success "Firewall ports opened."
     fi
 
-    # Start
-    msg_info "Starting Container..."
-    docker compose up -d
-    
     echo ""
-    draw_line
-    msg_success "INSTALLATION COMPLETE!"
-    echo -e "${B_WHITE}   🌍 URL:${NC}  http://${PUBLIC_IP}:${WGD_PORT}"
-    echo -e "${B_WHITE}   👤 User:${NC} ${WGD_USER}"
-    echo -e "${B_WHITE}   🔑 Pass:${NC} (Hidden)"
-    draw_line
-    pause
+    notify_success "INSTALLED SUCCESSFULLY"
+    echo -e " ${C_GRAY}➜ Panel URL:${C_RESET} http://${PUBLIC_IP}:${WGD_PORT}"
+    press_enter
 }
 
-update_dashboard() {
+update_panel() {
     draw_header
-    echo -e "${B_BLUE}🔄 UPDATE WIZARD${NC}"
-    draw_line
-    echo -e "${GRAY}This will pull the latest version of WGDashboard.${NC}"
-    echo -e "${GRAY}Your configurations and users will remain SAFE.${NC}"
+    echo -e " ${C_WHITE}UPDATE MANAGER${C_RESET}"
     echo ""
-
-    if [ ! -d "$INSTALL_DIR" ]; then
-        echo -e "${B_RED}❌ Dashboard is not installed in $INSTALL_DIR${NC}"
-        pause
-        return
-    fi
+    if [ ! -d "$INSTALL_DIR" ]; then notify_warn "Not installed."; press_enter; return; fi
     
     cd "$INSTALL_DIR"
-    msg_info "Pulling latest images..."
-    docker compose pull
+    notify_info "Pulling latest update..."
+    docker compose pull & spinner $!
     
-    msg_info "Restarting with new version..."
-    docker compose up -d
+    notify_info "Restarting services..."
+    docker compose up -d & spinner $!
     
-    msg_info "Cleaning up old images..."
-    docker image prune -f > /dev/null
-    
-    msg_success "Update finished successfully!"
-    pause
+    docker image prune -f > /dev/null 2>&1
+    notify_success "Updated to latest version."
+    press_enter
 }
 
-install_backup_bot() {
+setup_backup_bot() {
     draw_header
-    echo -e "${B_YELLOW}🤖 TELEGRAM AUTO-BACKUP${NC}"
-    draw_line
-    echo -e "${GRAY}This sets up a bot to zip your configs and send them to Telegram.${NC}"
+    echo -e " ${C_WHITE}TELEGRAM AUTO-BACKUP${C_RESET}"
     echo ""
 
-    # Check Volumes
     if ! docker volume ls -q | grep -q wgdashboard_conf; then
-        echo -e "${B_RED}❌ Error: WGDashboard volumes not found.${NC}"
-        echo -e "${GRAY}   Please install the dashboard first (Option 1).${NC}"
-        pause
-        return
+        notify_warn "Dashboard not found. Install it first."
+        press_enter; return
     fi
 
-    # Install deps
-    msg_info "Installing dependencies (zip, curl, cron)..."
+    notify_info "Installing tools (zip, curl, cron)..."
     apt-get update -qq >/dev/null
     apt-get install -y -qq zip curl cron >/dev/null
 
     echo ""
-    echo -e "${B_CYAN}📱 Telegram Bot Details${NC}"
-    ask_input "Enter Bot Token (from @BotFather)" ""
-    read TG_TOKEN
-    ask_input "Enter Chat ID (from @userinfobot)" ""
-    read TG_CHATID
+    echo -e " ${C_CYAN}BOT CREDENTIALS${C_RESET}"
+    ask "Bot Token" ""; read TG_TOKEN
+    ask "Chat ID" ""; read TG_CHATID
 
     if [[ -z "$TG_TOKEN" || -z "$TG_CHATID" ]]; then
-        echo -e "${B_RED}❌ Invalid input. Token and ID are required.${NC}"
-        pause
-        return
+        notify_warn "Token and Chat ID are mandatory."
+        press_enter; return
     fi
+
+    echo ""
+    echo -e " ${C_CYAN}CUSTOMIZATION${C_RESET}"
+    echo -e " ${C_GRAY}Choose a name for this backup file (e.g., 'London-Server').${C_RESET}"
+    echo -e " ${C_GRAY}Leave empty to use 'WGD-Backup'.${C_RESET}"
+    ask "Backup Prefix Name" "WGD-Backup"; read PREFIX_IN
+    
+    # Use default if empty, sanitize input to remove spaces/special chars
+    BACKUP_PREFIX=${PREFIX_IN:-WGD-Backup}
+    BACKUP_PREFIX=$(echo "$BACKUP_PREFIX" | tr -dc '[:alnum:]-_')
 
     # Create Script
     cat <<EOF > "$BACKUP_SCRIPT_PATH"
@@ -292,163 +229,101 @@ install_backup_bot() {
 TOKEN="$TG_TOKEN"
 CHAT_ID="$TG_CHATID"
 SERVER_IP="\$(curl -s ifconfig.me)"
+PREFIX="$BACKUP_PREFIX"
 DATE="\$(date +'%Y-%m-%d_%H-%M')"
-BACKUP_DIR="/tmp/wgd_backup_\$DATE"
-ZIP_FILE="/tmp/wgd_backup_\$DATE.zip"
+
+# Intelligent Naming
+FILENAME="\${PREFIX}_\${SERVER_IP}_\${DATE}"
+BACKUP_DIR="/tmp/\$FILENAME"
+ZIP_FILE="/tmp/\$FILENAME.zip"
 
 mkdir -p "\$BACKUP_DIR"
-# Copy Volumes
 cp -r /var/lib/docker/volumes/wgdashboard_conf/_data "\$BACKUP_DIR/wireguard_config"
 cp -r /var/lib/docker/volumes/wgdashboard_data/_data "\$BACKUP_DIR/dashboard_data"
 
 cd /tmp
-zip -r "\$ZIP_FILE" "wgd_backup_\$DATE" >/dev/null 2>&1
+zip -r "\$ZIP_FILE" "\$FILENAME" >/dev/null 2>&1
 
-CAPTION="📦 *WGDashboard Backup*%0A📅 Date: \$DATE%0A🖥️ IP: \$SERVER_IP"
+CAPTION="📦 *Backup Notification*%0A🏷️ Name: \`\$PREFIX\`%0A🖥️ IP: \`\$SERVER_IP\`%0A📅 Time: \$(date +'%H:%M %Z')"
+
 curl -s -F document=@"\$ZIP_FILE" "https://api.telegram.org/bot\$TOKEN/sendDocument?chat_id=\$CHAT_ID&caption=\$CAPTION&parse_mode=Markdown" >/dev/null
 
 rm -rf "\$BACKUP_DIR" "\$ZIP_FILE"
 EOF
-
     chmod +x "$BACKUP_SCRIPT_PATH"
-    msg_success "Backup script created."
 
-    # Cron Menu
     echo ""
-    echo -e "${B_CYAN}⏰ Backup Frequency Setup${NC}"
-    echo -e "   ${B_WHITE}1)${NC} ${CYAN}Minute-based${NC}  ${GRAY}(e.g., every 30 mins)${NC}"
-    echo -e "   ${B_WHITE}2)${NC} ${CYAN}Hourly-based${NC}  ${GRAY}(e.g., every 6 hours)${NC}"
-    echo -e "   ${B_WHITE}3)${NC} ${CYAN}Daily-based${NC}   ${GRAY}(e.g., once a day)${NC}"
-    echo ""
-    ask_input "Select Frequency [1-3]" "3"
-    read FREQ
+    echo -e " ${C_CYAN}SCHEDULE${C_RESET}"
+    echo -e " ${C_WHITE}1)${C_RESET} Every 30 Minutes"
+    echo -e " ${C_WHITE}2)${C_RESET} Every 6 Hours"
+    echo -e " ${C_WHITE}3)${C_RESET} Daily (Select Hour)"
+    ask "Select Frequency" "3"; read FREQ
     
-    CRON_CMD=""
     case $FREQ in
-        1) 
-            ask_input "Enter interval in minutes" "30"
-            read M
-            CRON_CMD="*/$M * * * *" 
-            ;;
-        2) 
-            ask_input "Enter interval in hours" "6"
-            read H
-            CRON_CMD="0 */$H * * * *" 
-            ;;
-        3) 
-            ask_input "Enter hour of day (0-23)" "3"
-            read D
-            CRON_CMD="0 $D * * *" 
-            ;;
-        *) 
-            msg_warn "Invalid choice. Defaulting to Daily at 03:00 AM"
-            CRON_CMD="0 3 * * *" 
-            ;;
+        1) CRON="*/30 * * * *" ;;
+        2) CRON="0 */6 * * * *" ;;
+        3) ask "Hour (0-23)" "3"; read H; CRON="0 ${H:-3} * * *" ;;
+        *) CRON="0 3 * * *" ;;
     esac
 
-    # Update Crontab
     (crontab -l 2>/dev/null | grep -v "$BACKUP_SCRIPT_PATH") | crontab -
-    (crontab -l 2>/dev/null; echo "$CRON_CMD $BACKUP_SCRIPT_PATH") | crontab -
-    
-    msg_success "Auto-Backup scheduled!"
-    msg_info "Sending a test backup now..."
-    bash "$BACKUP_SCRIPT_PATH"
-    pause
+    (crontab -l 2>/dev/null; echo "$CRON $BACKUP_SCRIPT_PATH") | crontab -
+
+    notify_success "Bot configured successfully!"
+    notify_info "Sending a test backup now..."
+    bash "$BACKUP_SCRIPT_PATH" & spinner $!
+    press_enter
 }
 
 uninstall_all() {
-    draw_header
-    echo -e "${B_RED}💀 UNINSTALLATION ZONE${NC}"
-    draw_line
-    echo -e "${B_RED}WARNING: This will delete:${NC}"
-    echo -e "  - The Dashboard Container"
-    echo -e "  - The Backup Bot & Scripts"
-    echo -e "  - (Optional) All VPN Users & Configs"
     echo ""
-    ask_input "Type 'yes' to confirm deletion" ""
-    read CONFIRM
-    
+    notify_warn "DANGER ZONE: This will delete the panel and bot."
+    ask "Type 'yes' to confirm" ""; read CONFIRM
     if [ "$CONFIRM" == "yes" ]; then
-        msg_info "Stopping containers..."
-        if [ -d "$INSTALL_DIR" ]; then
-            cd "$INSTALL_DIR"
-            docker compose down >/dev/null 2>&1
-        fi
-        
-        msg_info "Removing installation files..."
-        rm -rf "$INSTALL_DIR"
-        rm -f "$BACKUP_SCRIPT_PATH"
-        
-        msg_info "Cleaning up Cron jobs..."
+        if [ -d "$INSTALL_DIR" ]; then cd "$INSTALL_DIR"; docker compose down >/dev/null 2>&1; fi
+        rm -rf "$INSTALL_DIR" "$BACKUP_SCRIPT_PATH"
         (crontab -l 2>/dev/null | grep -v "$BACKUP_SCRIPT_PATH") | crontab -
-        
-        echo ""
-        ask_input "Delete Database & VPN Configs? (y/n)" "n"
-        read DEL_VOL
-        if [[ "$DEL_VOL" =~ ^[Yy]$ ]]; then
-            docker volume rm wgdashboard_aconf wgdashboard_conf wgdashboard_data 2>/dev/null
-            msg_success "Volumes removed."
-        else
-            msg_info "Volumes (data) kept safe."
-        fi
-        
-        msg_success "Uninstalled successfully."
-    else
-        msg_warn "Uninstall cancelled."
+        notify_success "Uninstalled."
     fi
-    pause
+    press_enter
 }
 
 view_logs() {
-    draw_header
-    echo -e "${B_BLUE}📄 LIVE LOGS${NC}"
-    draw_line
-    echo -e "${GRAY}Press ${B_RED}Ctrl+C${GRAY} to exit logs and return to terminal.${NC}"
-    echo ""
-    sleep 2
     if [ -d "$INSTALL_DIR" ]; then
         cd "$INSTALL_DIR"
-        docker compose logs -f --tail=50
+        clear
+        echo -e "${C_CYAN}--- LIVE LOGS (Ctrl+C to Exit) ---${C_RESET}"
+        docker compose logs -f --tail=20
     else
-        echo -e "${B_RED}❌ Not installed.${NC}"
-        pause
+        notify_warn "Not installed."
     fi
 }
 
-# --- حلقه اصلی منو ---
+# --- Main Menu Loop ---
 while true; do
     draw_header
     
-    # منو با توضیحات
-    echo -e "  ${B_GREEN}1.${NC} ${B_WHITE}Install Dashboard${NC}"
-    echo -e "     ${GRAY}↳ Install Docker, Setup Panel & Firewall${NC}"
+    # Menu Format: Option | Title | Description
+    printf "  ${C_GREEN}1${C_RESET} ${C_GRAY}•${C_RESET} ${C_WHITE}%-18s${C_RESET} ${C_GRAY}---${C_RESET} ${C_GRAY}%s${C_RESET}\n" "Install Panel" "Setup Docker & WGDashboard"
+    printf "  ${C_GREEN}2${C_RESET} ${C_GRAY}•${C_RESET} ${C_WHITE}%-18s${C_RESET} ${C_GRAY}---${C_RESET} ${C_GRAY}%s${C_RESET}\n" "Update Panel" "Get latest version (Safe)"
+    printf "  ${C_GREEN}3${C_RESET} ${C_GRAY}•${C_RESET} ${C_WHITE}%-18s${C_RESET} ${C_GRAY}---${C_RESET} ${C_GRAY}%s${C_RESET}\n" "Backup Bot 🤖" "Configure Telegram Auto-Backup"
+    printf "  ${C_GREEN}4${C_RESET} ${C_GRAY}•${C_RESET} ${C_WHITE}%-18s${C_RESET} ${C_GRAY}---${C_RESET} ${C_GRAY}%s${C_RESET}\n" "Live Logs" "View container logs"
+    printf "  ${C_RED}0${C_RESET} ${C_GRAY}•${C_RESET} ${C_WHITE}%-18s${C_RESET} ${C_GRAY}---${C_RESET} ${C_GRAY}%s${C_RESET}\n" "Uninstall" "Remove everything"
     
-    echo -e "  ${B_GREEN}2.${NC} ${B_WHITE}Update Dashboard${NC}"
-    echo -e "     ${GRAY}↳ Pull latest version (Data is safe)${NC}"
-    
-    echo -e "  ${B_GREEN}3.${NC} ${B_WHITE}Setup Backup Bot${NC} ${B_YELLOW}🤖${NC}"
-    echo -e "     ${GRAY}↳ Auto-send Configs/DB to Telegram (Cron)${NC}"
-    
-    echo -e "  ${B_GREEN}4.${NC} ${B_WHITE}View Logs${NC}"
-    echo -e "     ${GRAY}↳ Debug issues & view container logs${NC}"
-    
-    echo -e "  ${B_RED}0.${NC} ${B_RED}Uninstall Everything${NC}"
-    echo -e "     ${GRAY}↳ Remove Panel, Bot & Data${NC}"
-    
-    draw_line
-    echo -e "  ${B_CYAN}9.${NC} ${B_CYAN}Exit Menu${NC}"
+    echo ""
+    echo -e "  ${C_CYAN}9${C_RESET} ${C_GRAY}•${C_RESET} Exit"
     echo ""
     
-    ask_input "Select Option" ""
+    ask "Select Option" ""
     read OPTION
 
     case $OPTION in
-        1) install_dashboard ;;
-        2) update_dashboard ;;
-        3) install_backup_bot ;;
+        1) install_panel ;;
+        2) update_panel ;;
+        3) setup_backup_bot ;;
         4) view_logs ;;
         0) uninstall_all ;;
-        9) echo -e "${B_PURPLE}Bye! 👋${NC}"; exit 0 ;;
-        *) echo -e "${B_RED}❌ Invalid option.${NC}"; sleep 1 ;;
+        9) clear; exit 0 ;;
+        *) notify_warn "Invalid Option"; sleep 1 ;;
     esac
 done
