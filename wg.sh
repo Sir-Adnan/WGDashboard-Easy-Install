@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-#  WGDashboard Manager - Bug-Free Edition (V5.0)
+#  WGDashboard Manager - Debug Edition (V6.0)
 # =========================================================
 
 # --- Colors ---
@@ -161,7 +161,7 @@ setup_backup_bot() {
     apt-get install -y -qq zip curl cron >/dev/null 2>&1
 
     echo ""
-    draw_box "CREDENTIALS" "Enter Bot Token & Chat ID." "$P"
+    draw_box "CREDENTIALS" "Enter Bot Token & Chat ID.\nMake sure you have STARTED the bot in Telegram!" "$P"
     echo -ne " ${Y}➤${N} Bot Token: "; read TG_TOKEN
     echo -ne " ${Y}➤${N} Chat ID: "; read TG_CHATID
 
@@ -171,18 +171,43 @@ setup_backup_bot() {
         return
     fi
 
+    # --- NEW: Connection Verification ---
+    echo ""
+    echo -e " ${C}➜ Verifying credentials with Telegram API...${N}"
+    
+    # 1. Check Token
+    BOT_INFO=$(curl -s "https://api.telegram.org/bot${TG_TOKEN}/getMe")
+    if [[ "$BOT_INFO" != *"\"ok\":true"* ]]; then
+        echo -e " ${R}✖ Error: Invalid Bot Token!${N}"
+        echo -e "   Telegram Response: $BOT_INFO"
+        read -p "Press Enter to try again..."
+        return
+    fi
+
+    # 2. Check Chat ID (Send Text)
+    echo -e " ${C}➜ Sending test message to verify Chat ID...${N}"
+    MSG_TEST=$(curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" -d chat_id="${TG_CHATID}" -d text="🔌 Connection Successful! Server is ready to send backups.")
+    
+    if [[ "$MSG_TEST" != *"\"ok\":true"* ]]; then
+        echo -e " ${R}✖ Error: Cannot send message to this Chat ID!${N}"
+        echo -e " ${Y}⚠ Did you click /start in your bot?${N}"
+        echo -e "   Telegram Response: $MSG_TEST"
+        read -p "Press Enter to try again..."
+        return
+    fi
+    
+    echo -e " ${G}✔ Connection Verified!${N}"
+    
+    # --- Proceed to Setup ---
+
     echo ""
     draw_box "NAMING" "Unique name for this server (Allowed: A-Z, 0-9, . , -)" "$P"
     echo -ne " ${Y}➤${N} Backup Name [Default: WGD-Backup]: "; read PREFIX_IN
     
-    # --- CRITICAL FIX: SANITIZE INPUT ---
-    # Removes any special characters except letters, numbers, dots, and dashes
     BACKUP_PREFIX=${PREFIX_IN:-WGD-Backup}
     CLEAN_PREFIX=$(echo "$BACKUP_PREFIX" | tr -dc 'a-zA-Z0-9-._')
 
-    # --- CRITICAL FIX: SAFE SCRIPT GENERATION ---
-    
-    # 1. Write Variables safely
+    # Create Script
     cat <<EOF > "$BACKUP_SCRIPT_PATH"
 #!/bin/bash
 # Config
@@ -191,7 +216,6 @@ CHAT_ID="${TG_CHATID}"
 PREFIX="${CLEAN_PREFIX}"
 EOF
 
-    # 2. Append Logic (Quoted Heredoc: Prevents execution during creation)
     cat <<'EOF' >> "$BACKUP_SCRIPT_PATH"
 
 # Dynamic Info
@@ -213,10 +237,17 @@ cd /tmp
 zip -r "${ZIP_FILE}" "${FILENAME}" >/dev/null 2>&1
 
 # Send to Telegram
-# We use backslash-backtick (\`) to create a literal backtick string for Telegram Markdown
 CAPTION="📦 *Backup Notification*%0A🏷 Name: \`${PREFIX}\`%0A🖥 IP: \`${SERVER_IP}\`%0A📅 Date: $(date +'%Y-%m-%d %H:%M')"
 
-curl -s -F document=@"${ZIP_FILE}" "https://api.telegram.org/bot${TOKEN}/sendDocument?chat_id=${CHAT_ID}&caption=${CAPTION}&parse_mode=Markdown" >/dev/null
+# Send Document and Capture Response
+RESPONSE=$(curl -s -F document=@"${ZIP_FILE}" "https://api.telegram.org/bot${TOKEN}/sendDocument?chat_id=${CHAT_ID}&caption=${CAPTION}&parse_mode=Markdown")
+
+# Check if failed (for manual run debugging)
+if [[ "$RESPONSE" != *"\"ok\":true"* ]]; then
+    echo "❌ Telegram Upload Failed: $RESPONSE"
+else
+    echo "✅ Backup Uploaded Successfully"
+fi
 
 # Cleanup
 rm -rf "${BACKUP_DIR}" "${ZIP_FILE}"
@@ -248,15 +279,12 @@ EOF
     
     echo ""
     echo -e " ${G}✔ Scheduled!${N}"
-    echo -e " ${Y}➜ Sending test backup...${N}"
+    echo -e " ${Y}➜ Sending file backup test...${N}"
     
-    # Run test
+    # Run test and show output
     bash "$BACKUP_SCRIPT_PATH"
-    if [ $? -eq 0 ]; then
-         echo -e " ${G}✔ Test Sent! Check Telegram.${N}"
-    else
-         echo -e " ${R}✖ Test Failed. Check Token/ChatID.${N}"
-    fi
+    
+    echo ""
     read -p "Press Enter to return..."
 }
 
@@ -307,7 +335,7 @@ while true; do
     header
     echo -e " ${G}1)${N} Install Dashboard"
     echo -e " ${G}2)${N} Update Dashboard"
-    echo -e " ${G}3)${N} Setup Backup Bot ${Y}(Fixed)${N}"
+    echo -e " ${G}3)${N} Setup Backup Bot ${Y}(New)${N}"
     echo -e " ${G}4)${N} View Logs"
     echo -e " ${R}0)${N} Uninstall"
     echo -e " ${R}9)${N} Exit"
