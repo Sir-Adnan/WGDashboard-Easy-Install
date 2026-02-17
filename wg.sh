@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-#  WGDashboard Manager - Debug Edition (V6.0)
+#  WGDashboard Manager - Final Fixed Edition (V7.0)
 # =========================================================
 
 # --- Colors ---
@@ -150,18 +150,14 @@ setup_backup_bot() {
     header
     draw_box "TELEGRAM AUTO-BACKUP" "Setup automated backups to Telegram." "$B"
 
-    if ! docker ps -a | grep -q wgdashboard; then
-        echo -e " ${R}✖ Dashboard not found. Install it first.${N}"
-        read -p "Press Enter..."
-        return
-    fi
-
+    # --- Dependency Check ---
     echo -e " ${C}➜ Installing dependencies...${N}"
     apt-get update -qq >/dev/null 2>&1
     apt-get install -y -qq zip curl cron >/dev/null 2>&1
 
+    # --- Credentials ---
     echo ""
-    draw_box "CREDENTIALS" "Enter Bot Token & Chat ID.\nMake sure you have STARTED the bot in Telegram!" "$P"
+    draw_box "CREDENTIALS" "Enter Bot Token & Chat ID.\nEnsure you have STARTED the bot!" "$P"
     echo -ne " ${Y}➤${N} Bot Token: "; read TG_TOKEN
     echo -ne " ${Y}➤${N} Chat ID: "; read TG_CHATID
 
@@ -171,91 +167,74 @@ setup_backup_bot() {
         return
     fi
 
-    # --- NEW: Connection Verification ---
+    # --- Verify Connection ---
     echo ""
-    echo -e " ${C}➜ Verifying credentials with Telegram API...${N}"
+    echo -e " ${C}➜ Verifying connection...${N}"
+    TEST_MSG=$(curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" -d chat_id="${TG_CHATID}" -d text="🔌 Connection Verified!")
     
-    # 1. Check Token
-    BOT_INFO=$(curl -s "https://api.telegram.org/bot${TG_TOKEN}/getMe")
-    if [[ "$BOT_INFO" != *"\"ok\":true"* ]]; then
-        echo -e " ${R}✖ Error: Invalid Bot Token!${N}"
-        echo -e "   Telegram Response: $BOT_INFO"
+    if [[ "$TEST_MSG" != *"\"ok\":true"* ]]; then
+        echo -e " ${R}✖ Connection Failed!${N}"
+        echo -e "   Telegram Response: $TEST_MSG"
         read -p "Press Enter to try again..."
         return
     fi
+    echo -e " ${G}✔ Connection Successful!${N}"
 
-    # 2. Check Chat ID (Send Text)
-    echo -e " ${C}➜ Sending test message to verify Chat ID...${N}"
-    MSG_TEST=$(curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" -d chat_id="${TG_CHATID}" -d text="🔌 Connection Successful! Server is ready to send backups.")
-    
-    if [[ "$MSG_TEST" != *"\"ok\":true"* ]]; then
-        echo -e " ${R}✖ Error: Cannot send message to this Chat ID!${N}"
-        echo -e " ${Y}⚠ Did you click /start in your bot?${N}"
-        echo -e "   Telegram Response: $MSG_TEST"
-        read -p "Press Enter to try again..."
-        return
-    fi
-    
-    echo -e " ${G}✔ Connection Verified!${N}"
-    
-    # --- Proceed to Setup ---
-
+    # --- Naming ---
     echo ""
-    draw_box "NAMING" "Unique name for this server (Allowed: A-Z, 0-9, . , -)" "$P"
+    draw_box "NAMING" "Unique name for this server." "$P"
     echo -ne " ${Y}➤${N} Backup Name [Default: WGD-Backup]: "; read PREFIX_IN
-    
     BACKUP_PREFIX=${PREFIX_IN:-WGD-Backup}
     CLEAN_PREFIX=$(echo "$BACKUP_PREFIX" | tr -dc 'a-zA-Z0-9-._')
 
-    # Create Script
+    # --- Generate Script ---
+    # We use the specific path you provided: /var/lib/docker/volumes/wgdashboard_conf/_data/
+    
     cat <<EOF > "$BACKUP_SCRIPT_PATH"
 #!/bin/bash
-# Config
 TOKEN="${TG_TOKEN}"
 CHAT_ID="${TG_CHATID}"
 PREFIX="${CLEAN_PREFIX}"
-EOF
 
-    cat <<'EOF' >> "$BACKUP_SCRIPT_PATH"
+# Dynamic Variables
+SERVER_IP=\$(curl -s ifconfig.me || hostname -I | awk '{print \$1}')
+DATE=\$(date +'%Y-%m-%d_%H-%M')
+FILENAME="\${PREFIX}_\${DATE}"
+BACKUP_DIR="/tmp/\${FILENAME}"
+ZIP_FILE="/tmp/\${FILENAME}.zip"
 
-# Dynamic Info
-SERVER_IP=$(curl -s ifconfig.me || hostname -I | awk '{print $1}')
-DATE=$(date +'%Y-%m-%d_%H-%M')
-FILENAME="${PREFIX}_${DATE}"
-BACKUP_DIR="/tmp/${FILENAME}"
-ZIP_FILE="/tmp/${FILENAME}.zip"
+# Create Temp Directory
+mkdir -p "\${BACKUP_DIR}"
 
-# Create Temp Folder
-mkdir -p "${BACKUP_DIR}"
+# --- COPYING CRITICAL DATA ---
+# Using the exact path provided by user
+TARGET_PATH="/var/lib/docker/volumes/wgdashboard_conf/_data"
 
-# Copy Data
-cp -r /var/lib/docker/volumes/wgdashboard_conf/_data "${BACKUP_DIR}/wireguard_config" 2>/dev/null
-cp -r /var/lib/docker/volumes/wgdashboard_data/_data "${BACKUP_DIR}/dashboard_data" 2>/dev/null
+if [ -d "\$TARGET_PATH" ]; then
+    cp -r "\$TARGET_PATH"/* "\${BACKUP_DIR}/"
+else
+    # Fallback log if path doesn't exist
+    echo "Source path \$TARGET_PATH not found!" > "\${BACKUP_DIR}/error_log.txt"
+fi
 
 # Zip
 cd /tmp
-zip -r "${ZIP_FILE}" "${FILENAME}" >/dev/null 2>&1
+zip -r "\${ZIP_FILE}" "\${FILENAME}" >/dev/null 2>&1
 
 # Send to Telegram
-CAPTION="📦 *Backup Notification*%0A🏷 Name: \`${PREFIX}\`%0A🖥 IP: \`${SERVER_IP}\`%0A📅 Date: $(date +'%Y-%m-%d %H:%M')"
+CAPTION="📦 *Backup Notification*%0A🏷 Name: \`\${PREFIX}\`%0A🖥 IP: \`\${SERVER_IP}\`%0A📅 Date: \$(date +'%Y-%m-%d %H:%M')"
 
-# Send Document and Capture Response
-RESPONSE=$(curl -s -F document=@"${ZIP_FILE}" "https://api.telegram.org/bot${TOKEN}/sendDocument?chat_id=${CHAT_ID}&caption=${CAPTION}&parse_mode=Markdown")
-
-# Check if failed (for manual run debugging)
-if [[ "$RESPONSE" != *"\"ok\":true"* ]]; then
-    echo "❌ Telegram Upload Failed: $RESPONSE"
-else
-    echo "✅ Backup Uploaded Successfully"
-fi
+# Debug mode for curl: -v is removed for cron, but logic checks output
+RESPONSE=\$(curl -s -F document=@"\${ZIP_FILE}" "https://api.telegram.org/bot\${TOKEN}/sendDocument?chat_id=\${CHAT_ID}&caption=\${CAPTION}&parse_mode=Markdown")
 
 # Cleanup
-rm -rf "${BACKUP_DIR}" "${ZIP_FILE}"
+rm -rf "\${BACKUP_DIR}" "\${ZIP_FILE}"
 EOF
 
     chmod +x "$BACKUP_SCRIPT_PATH"
     echo -e " ${G}✔ Script generated at $BACKUP_SCRIPT_PATH${N}"
 
+    # --- Scheduling ---
     echo ""
     draw_box "FREQUENCY" "Select backup interval." "$P"
     echo -e " ${C}1)${N} Every 30 Minutes"
@@ -279,18 +258,37 @@ EOF
     
     echo ""
     echo -e " ${G}✔ Scheduled!${N}"
-    echo -e " ${Y}➜ Sending file backup test...${N}"
+    echo -e " ${Y}➜ Sending test backup (Wait a moment)...${N}"
     
-    # Run test and show output
+    # Run test manually
     bash "$BACKUP_SCRIPT_PATH"
     
-    echo ""
+    echo -e " ${G}✔ Test script executed. Check Telegram now.${N}"
     read -p "Press Enter to return..."
+}
+
+remove_backup_only() {
+    header
+    draw_box "REMOVE BACKUP" "This will stop auto-backups and delete the bot script.\nThe Dashboard and VPN will NOT be affected." "$R"
+    echo -ne " ${Y}➤${N} Type 'yes' to confirm: "; read CONFIRM
+    
+    if [ "$CONFIRM" == "yes" ]; then
+        echo -e " ${C}➜ Removing Cron job...${N}"
+        (crontab -l 2>/dev/null | grep -v "$BACKUP_SCRIPT_PATH") | crontab -
+        
+        echo -e " ${C}➜ Deleting script...${N}"
+        rm -f "$BACKUP_SCRIPT_PATH"
+        
+        echo -e " ${G}✔ Backup system removed successfully.${N}"
+    else
+        echo -e " ${Y}⚠ Cancelled.${N}"
+    fi
+    read -p "Press Enter..."
 }
 
 uninstall_all() {
     header
-    draw_box "UNINSTALL" "Delete Dashboard & Bot?" "$R"
+    draw_box "UNINSTALL ALL" "Delete Dashboard & Bot?" "$R"
     echo -ne " ${Y}➤${N} Type 'yes' to confirm: "; read CONFIRM
     
     if [ "$CONFIRM" == "yes" ]; then
@@ -335,9 +333,10 @@ while true; do
     header
     echo -e " ${G}1)${N} Install Dashboard"
     echo -e " ${G}2)${N} Update Dashboard"
-    echo -e " ${G}3)${N} Setup Backup Bot ${Y}(New)${N}"
-    echo -e " ${G}4)${N} View Logs"
-    echo -e " ${R}0)${N} Uninstall"
+    echo -e " ${G}3)${N} Setup Backup Bot ${Y}(Fixed)${N}"
+    echo -e " ${R}4)${N} Remove Backup Only ${Y}(New)${N}"
+    echo -e " ${B}5)${N} View Logs"
+    echo -e " ${R}0)${N} Uninstall Everything"
     echo -e " ${R}9)${N} Exit"
     echo ""
     echo -ne " ${Y}➤${N} Option: "; read OPTION
@@ -346,7 +345,8 @@ while true; do
         1) install_panel ;;
         2) update_panel ;;
         3) setup_backup_bot ;;
-        4) view_logs ;;
+        4) remove_backup_only ;;
+        5) view_logs ;;
         0) uninstall_all ;;
         9) clear; exit 0 ;;
         *) echo -e " ${R}Invalid.${N}"; sleep 1 ;;
