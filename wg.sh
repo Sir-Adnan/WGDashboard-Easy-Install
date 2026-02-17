@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-#  WGDashboard Manager - Final Fixed Edition (V7.0)
+#  WGDashboard Manager - Final Fix (V8.0)
 # =========================================================
 
 # --- Colors ---
@@ -18,22 +18,13 @@ N='\033[0m'
 INSTALL_DIR="/opt/wgdashboard"
 BACKUP_SCRIPT_PATH="/usr/local/bin/wgd-backup.sh"
 
-# --- UI Helper Functions ---
-
+# --- UI Functions ---
 draw_box() {
-    local title="$1"
-    local text="$2"
-    local color="$3"
-    
+    local title="$1"; local text="$2"; local color="$3"
     echo -e "${color}"
     echo "╔══════════════════════════════════════════════════════════════╗"
-    if [ -n "$title" ]; then
-        printf "║ %-60s ║\n" "  $title"
-        echo "╠══════════════════════════════════════════════════════════════╣"
-    fi
-    echo "$text" | while IFS= read -r line; do
-        printf "║ %-60s ║\n" "  $line"
-    done
+    if [ -n "$title" ]; then printf "║ %-60s ║\n" "  $title"; echo "╠══════════════════════════════════════════════════════════════╣"; fi
+    echo "$text" | while IFS= read -r line; do printf "║ %-60s ║\n" "  $line"; done
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${N}"
 }
@@ -51,61 +42,38 @@ header() {
     echo ""
 }
 
-# --- Check Root ---
-if [ "$EUID" -ne 0 ]; then
-    echo -e "${R}❌ Error: Please run as root (sudo).${N}"
-    exit 1
-fi
+if [ "$EUID" -ne 0 ]; then echo -e "${R}❌ Error: Run as root.${N}"; exit 1; fi
 
 # --- Modules ---
 
 install_panel() {
     header
-    draw_box "STEP 1: INSTALLATION" \
-    "Installing Docker & WGDashboard.\nEnsure Ports: 10086 (TCP), 51820 (UDP)" "$B"
-
+    draw_box "INSTALLATION" "Installing Docker & Dashboard.\nPorts: 10086 (TCP), 51820 (UDP)" "$B"
     echo -e " ${C}➜ Configuring System...${N}"
-    if ! grep -q "^net.ipv4.ip_forward=1" /etc/sysctl.conf; then
-        echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
-    fi
-    sysctl -w net.ipv4.ip_forward=1 > /dev/null 2>&1
+    if ! grep -q "^net.ipv4.ip_forward=1" /etc/sysctl.conf; then echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf; fi
+    sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
 
-    if ! command -v docker &> /dev/null; then
+    if ! command -v docker &>/dev/null; then
         echo -e " ${C}➜ Installing Docker...${N}"
         apt-get update -qq >/dev/null 2>&1
         apt-get install -y -qq ca-certificates curl gnupg lsb-release >/dev/null 2>&1
         mkdir -p /etc/apt/keyrings
         curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list >/dev/null
         apt-get update -qq >/dev/null 2>&1
         apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null 2>&1
-    else
-        echo -e " ${G}✔ Docker is ready.${N}"
     fi
 
     echo ""
-    draw_box "CONFIGURATION" "Enter dashboard details." "$P"
-    
+    draw_box "CONFIG" "Dashboard Details" "$P"
     DETECTED_IP=$(curl -s https://api.ipify.org || echo "127.0.0.1")
-    echo -ne " ${Y}➤${N} Public IP [Default: $DETECTED_IP]: "; read IP_IN
-    PUBLIC_IP=${IP_IN:-$DETECTED_IP}
-    
-    echo -ne " ${Y}➤${N} Username [Default: admin]: "; read USER_IN
-    WGD_USER=${USER_IN:-admin}
-    
-    while true; do
-        echo -ne " ${Y}➤${N} Password: "; read -s WGD_PASS; echo ""
-        if [ -n "$WGD_PASS" ]; then break; fi
-        echo -e " ${R}⚠ Password is required!${N}"
-    done
-    
-    echo -ne " ${Y}➤${N} Port [Default: 10086]: "; read PORT_IN
-    WGD_PORT=${PORT_IN:-10086}
-    
-    echo -e "\n ${C}➜ Deploying...${N}"
-    mkdir -p "$INSTALL_DIR"
-    cd "$INSTALL_DIR"
+    echo -ne " ${Y}➤${N} Public IP [Default: $DETECTED_IP]: "; read IP_IN; PUBLIC_IP=${IP_IN:-$DETECTED_IP}
+    echo -ne " ${Y}➤${N} Username [Default: admin]: "; read USER_IN; WGD_USER=${USER_IN:-admin}
+    while true; do echo -ne " ${Y}➤${N} Password: "; read -s WGD_PASS; echo ""; if [ -n "$WGD_PASS" ]; then break; fi; done
+    echo -ne " ${Y}➤${N} Port [Default: 10086]: "; read PORT_IN; WGD_PORT=${PORT_IN:-10086}
 
+    echo -e "\n ${C}➜ Deploying...${N}"
+    mkdir -p "$INSTALL_DIR"; cd "$INSTALL_DIR"
     cat <<EOF > compose.yaml
 services:
   wgdashboard:
@@ -132,154 +100,105 @@ volumes:
   conf:
   data:
 EOF
-
-    docker compose up -d > /dev/null 2>&1
-    
-    if command -v ufw &> /dev/null && ufw status | grep -q "active"; then
-        ufw allow $WGD_PORT/tcp >/dev/null
-        ufw allow 51820/udp >/dev/null
-    fi
-
-    echo ""
-    echo -e " ${G}✔ INSTALLATION SUCCESSFUL!${N}"
-    echo -e "   URL: http://${PUBLIC_IP}:${WGD_PORT}"
-    read -p "Press Enter to continue..."
+    docker compose up -d >/dev/null 2>&1
+    if command -v ufw &>/dev/null && ufw status | grep -q "active"; then ufw allow $WGD_PORT/tcp >/dev/null; ufw allow 51820/udp >/dev/null; fi
+    echo -e " ${G}✔ Installed: http://${PUBLIC_IP}:${WGD_PORT}${N}"; read -p "Press Enter..."
 }
 
 setup_backup_bot() {
     header
-    draw_box "TELEGRAM AUTO-BACKUP" "Setup automated backups to Telegram." "$B"
+    draw_box "AUTO-BACKUP" "Setup Telegram Backup." "$B"
+    apt-get update -qq >/dev/null 2>&1; apt-get install -y -qq zip curl cron >/dev/null 2>&1
 
-    # --- Dependency Check ---
-    echo -e " ${C}➜ Installing dependencies...${N}"
-    apt-get update -qq >/dev/null 2>&1
-    apt-get install -y -qq zip curl cron >/dev/null 2>&1
-
-    # --- Credentials ---
-    echo ""
-    draw_box "CREDENTIALS" "Enter Bot Token & Chat ID.\nEnsure you have STARTED the bot!" "$P"
+    echo ""; draw_box "CREDENTIALS" "Enter Bot Token & Chat ID." "$P"
     echo -ne " ${Y}➤${N} Bot Token: "; read TG_TOKEN
     echo -ne " ${Y}➤${N} Chat ID: "; read TG_CHATID
+    if [[ -z "$TG_TOKEN" || -z "$TG_CHATID" ]]; then echo -e " ${R}✖ Missing inputs.${N}"; read -p "Enter..."; return; fi
 
-    if [[ -z "$TG_TOKEN" || -z "$TG_CHATID" ]]; then
-        echo -e " ${R}✖ Error: Missing credentials.${N}"
-        read -p "Press Enter..."
-        return
-    fi
-
-    # --- Verify Connection ---
-    echo ""
-    echo -e " ${C}➜ Verifying connection...${N}"
-    TEST_MSG=$(curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" -d chat_id="${TG_CHATID}" -d text="🔌 Connection Verified!")
-    
-    if [[ "$TEST_MSG" != *"\"ok\":true"* ]]; then
-        echo -e " ${R}✖ Connection Failed!${N}"
-        echo -e "   Telegram Response: $TEST_MSG"
-        read -p "Press Enter to try again..."
-        return
-    fi
+    echo -e " ${C}➜ Verifying...${N}"
+    TEST=$(curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" -d chat_id="${TG_CHATID}" -d text="🔌 Connection Verified!")
+    if [[ "$TEST" != *"\"ok\":true"* ]]; then echo -e " ${R}✖ Connection Failed!${N}"; read -p "Enter..."; return; fi
     echo -e " ${G}✔ Connection Successful!${N}"
 
-    # --- Naming ---
-    echo ""
-    draw_box "NAMING" "Unique name for this server." "$P"
-    echo -ne " ${Y}➤${N} Backup Name [Default: WGD-Backup]: "; read PREFIX_IN
+    echo ""; draw_box "NAMING" "Server Name (e.g. UAE-Server)" "$P"
+    echo -ne " ${Y}➤${N} Name [Default: WGD-Backup]: "; read PREFIX_IN
     BACKUP_PREFIX=${PREFIX_IN:-WGD-Backup}
     CLEAN_PREFIX=$(echo "$BACKUP_PREFIX" | tr -dc 'a-zA-Z0-9-._')
 
-    # --- Generate Script ---
-    # We use the specific path you provided: /var/lib/docker/volumes/wgdashboard_conf/_data/
+    # --- THE FIX: SPLIT WRITING TO PREVENT EXECUTION ---
     
+    # Part 1: Write Variables (Unquoted EOF allows variable expansion)
     cat <<EOF > "$BACKUP_SCRIPT_PATH"
 #!/bin/bash
 TOKEN="${TG_TOKEN}"
 CHAT_ID="${TG_CHATID}"
 PREFIX="${CLEAN_PREFIX}"
+EOF
+
+    # Part 2: Write Logic (Quoted 'EOF' prevents ANY execution during generation)
+    # This ensures backticks and variables are written literally to the file.
+    cat <<'EOF' >> "$BACKUP_SCRIPT_PATH"
 
 # Dynamic Variables
-SERVER_IP=\$(curl -s ifconfig.me || hostname -I | awk '{print \$1}')
-DATE=\$(date +'%Y-%m-%d_%H-%M')
-FILENAME="\${PREFIX}_\${DATE}"
-BACKUP_DIR="/tmp/\${FILENAME}"
-ZIP_FILE="/tmp/\${FILENAME}.zip"
+SERVER_IP=$(curl -s ifconfig.me || hostname -I | awk '{print $1}')
+DATE=$(date +'%Y-%m-%d_%H-%M')
+FILENAME="${PREFIX}_${DATE}"
+BACKUP_DIR="/tmp/${FILENAME}"
+ZIP_FILE="/tmp/${FILENAME}.zip"
 
-# Create Temp Directory
-mkdir -p "\${BACKUP_DIR}"
+mkdir -p "${BACKUP_DIR}"
 
-# --- COPYING CRITICAL DATA ---
-# Using the exact path provided by user
-TARGET_PATH="/var/lib/docker/volumes/wgdashboard_conf/_data"
+# --- COPY TARGET DATA ---
+SOURCE_PATH="/var/lib/docker/volumes/wgdashboard_conf/_data"
 
-if [ -d "\$TARGET_PATH" ]; then
-    cp -r "\$TARGET_PATH"/* "\${BACKUP_DIR}/"
+if [ -d "$SOURCE_PATH" ]; then
+    cp -r "$SOURCE_PATH"/* "${BACKUP_DIR}/"
 else
-    # Fallback log if path doesn't exist
-    echo "Source path \$TARGET_PATH not found!" > "\${BACKUP_DIR}/error_log.txt"
+    echo "Directory not found: $SOURCE_PATH" > "${BACKUP_DIR}/error.txt"
 fi
 
 # Zip
 cd /tmp
-zip -r "\${ZIP_FILE}" "\${FILENAME}" >/dev/null 2>&1
+zip -r "${ZIP_FILE}" "${FILENAME}" >/dev/null 2>&1
 
-# Send to Telegram
-CAPTION="📦 *Backup Notification*%0A🏷 Name: \`\${PREFIX}\`%0A🖥 IP: \`\${SERVER_IP}\`%0A📅 Date: \$(date +'%Y-%m-%d %H:%M')"
+# Send to Telegram (Safe Markdown)
+# We use simple strings to avoid backtick execution issues
+CAPTION="📦 *Backup Notification*%0A🏷 Name: ${PREFIX}%0A🖥 IP: ${SERVER_IP}%0A📅 Date: $(date +'%Y-%m-%d %H:%M')"
 
-# Debug mode for curl: -v is removed for cron, but logic checks output
-RESPONSE=\$(curl -s -F document=@"\${ZIP_FILE}" "https://api.telegram.org/bot\${TOKEN}/sendDocument?chat_id=\${CHAT_ID}&caption=\${CAPTION}&parse_mode=Markdown")
+curl -s -F document=@"${ZIP_FILE}" "https://api.telegram.org/bot${TOKEN}/sendDocument?chat_id=${CHAT_ID}&caption=${CAPTION}&parse_mode=Markdown" >/dev/null
 
-# Cleanup
-rm -rf "\${BACKUP_DIR}" "\${ZIP_FILE}"
+rm -rf "${BACKUP_DIR}" "${ZIP_FILE}"
 EOF
 
     chmod +x "$BACKUP_SCRIPT_PATH"
-    echo -e " ${G}✔ Script generated at $BACKUP_SCRIPT_PATH${N}"
+    echo -e " ${G}✔ Script generated.${N}"
 
-    # --- Scheduling ---
-    echo ""
-    draw_box "FREQUENCY" "Select backup interval." "$P"
-    echo -e " ${C}1)${N} Every 30 Minutes"
-    echo -e " ${C}2)${N} Every 6 Hours"
-    echo -e " ${C}3)${N} Daily"
-    echo ""
-    echo -ne " ${Y}➤${N} Select [1-3]: "; read FREQ
-    
+    echo ""; draw_box "FREQUENCY" "Select Interval" "$P"
+    echo -e " ${C}1)${N} 30 Mins  ${C}2)${N} 6 Hours  ${C}3)${N} Daily"
+    echo -ne " ${Y}➤${N} Option: "; read FREQ
     case $FREQ in
         1) CRON="*/30 * * * *" ;;
         2) CRON="0 */6 * * * *" ;;
-        3) 
-            echo -ne " ${Y}➤${N} Hour (0-23): "; read H
-            CRON="0 ${H:-3} * * *" 
-            ;;
+        3) echo -ne " ${Y}➤${N} Hour (0-23): "; read H; CRON="0 ${H:-0} * * *" ;;
         *) CRON="0 3 * * *" ;;
     esac
 
     (crontab -l 2>/dev/null | grep -v "$BACKUP_SCRIPT_PATH") | crontab -
     (crontab -l 2>/dev/null; echo "$CRON $BACKUP_SCRIPT_PATH") | crontab -
     
-    echo ""
-    echo -e " ${G}✔ Scheduled!${N}"
-    echo -e " ${Y}➜ Sending test backup (Wait a moment)...${N}"
-    
-    # Run test manually
+    echo -e " ${G}✔ Scheduled! Sending test...${N}"
     bash "$BACKUP_SCRIPT_PATH"
-    
-    echo -e " ${G}✔ Test script executed. Check Telegram now.${N}"
-    read -p "Press Enter to return..."
+    echo -e " ${G}✔ Test Done.${N}"; read -p "Press Enter..."
 }
 
 remove_backup_only() {
     header
-    draw_box "REMOVE BACKUP" "This will stop auto-backups and delete the bot script.\nThe Dashboard and VPN will NOT be affected." "$R"
-    echo -ne " ${Y}➤${N} Type 'yes' to confirm: "; read CONFIRM
-    
+    draw_box "REMOVE BACKUP" "Stops auto-backup. Dashboard remains active." "$R"
+    echo -ne " ${Y}➤${N} Confirm 'yes': "; read CONFIRM
     if [ "$CONFIRM" == "yes" ]; then
-        echo -e " ${C}➜ Removing Cron job...${N}"
         (crontab -l 2>/dev/null | grep -v "$BACKUP_SCRIPT_PATH") | crontab -
-        
-        echo -e " ${C}➜ Deleting script...${N}"
         rm -f "$BACKUP_SCRIPT_PATH"
-        
-        echo -e " ${G}✔ Backup system removed successfully.${N}"
+        echo -e " ${G}✔ Backup disabled.${N}"
     else
         echo -e " ${Y}⚠ Cancelled.${N}"
     fi
@@ -288,59 +207,37 @@ remove_backup_only() {
 
 uninstall_all() {
     header
-    draw_box "UNINSTALL ALL" "Delete Dashboard & Bot?" "$R"
-    echo -ne " ${Y}➤${N} Type 'yes' to confirm: "; read CONFIRM
-    
+    draw_box "UNINSTALL" "Delete Everything?" "$R"
+    echo -ne " ${Y}➤${N} Confirm 'yes': "; read CONFIRM
     if [ "$CONFIRM" == "yes" ]; then
         if [ -d "$INSTALL_DIR" ]; then cd "$INSTALL_DIR"; docker compose down >/dev/null 2>&1; fi
         rm -rf "$INSTALL_DIR" "$BACKUP_SCRIPT_PATH"
         (crontab -l 2>/dev/null | grep -v "$BACKUP_SCRIPT_PATH") | crontab -
         echo -e " ${G}✔ Deleted.${N}"
-    else
-        echo -e " ${R}✖ Cancelled.${N}"
     fi
     read -p "Press Enter..."
 }
 
 view_logs() {
     header
-    if [ -d "$INSTALL_DIR" ]; then
-        cd "$INSTALL_DIR"
-        echo -e "${C}--- Logs (Ctrl+C to exit) ---${N}"
-        docker compose logs -f --tail=20
-    else
-        echo -e "${R}Not installed.${N}"
-        read -p "Press Enter..."
-    fi
+    if [ -d "$INSTALL_DIR" ]; then cd "$INSTALL_DIR"; echo -e "${C}Logs (Ctrl+C exit)${N}"; docker compose logs -f --tail=20
+    else echo -e "${R}Not installed.${N}"; read -p "Enter..."; fi
 }
 
 update_panel() {
-    if [ -d "$INSTALL_DIR" ]; then
-        cd "$INSTALL_DIR"
-        echo -e "${C}➜ Updating...${N}"
-        docker compose pull
-        docker compose up -d
-        docker image prune -f >/dev/null 2>&1
-        echo -e "${G}✔ Done.${N}"
-    else
-        echo -e "${R}Not installed.${N}"
-    fi
-    read -p "Press Enter..."
+    if [ -d "$INSTALL_DIR" ]; then cd "$INSTALL_DIR"; docker compose pull; docker compose up -d; docker image prune -f >/dev/null 2>&1; echo -e "${G}✔ Updated.${N}"; else echo -e "${R}Not installed.${N}"; fi; read -p "Enter..."
 }
 
-# --- Main Menu ---
 while true; do
     header
-    echo -e " ${G}1)${N} Install Dashboard"
-    echo -e " ${G}2)${N} Update Dashboard"
+    echo -e " ${G}1)${N} Install Panel"
+    echo -e " ${G}2)${N} Update Panel"
     echo -e " ${G}3)${N} Setup Backup Bot ${Y}(Fixed)${N}"
-    echo -e " ${R}4)${N} Remove Backup Only ${Y}(New)${N}"
+    echo -e " ${R}4)${N} Remove Backup Only"
     echo -e " ${B}5)${N} View Logs"
-    echo -e " ${R}0)${N} Uninstall Everything"
+    echo -e " ${R}0)${N} Uninstall All"
     echo -e " ${R}9)${N} Exit"
-    echo ""
-    echo -ne " ${Y}➤${N} Option: "; read OPTION
-    
+    echo ""; echo -ne " ${Y}➤${N} Option: "; read OPTION
     case $OPTION in
         1) install_panel ;;
         2) update_panel ;;
@@ -349,6 +246,6 @@ while true; do
         5) view_logs ;;
         0) uninstall_all ;;
         9) clear; exit 0 ;;
-        *) echo -e " ${R}Invalid.${N}"; sleep 1 ;;
+        *) ;;
     esac
 done
