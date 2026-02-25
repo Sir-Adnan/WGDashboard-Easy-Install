@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # ==================================================
-#   WGDASHBOARD MASTER v20.0 - The Ultimate UI
+#   WGDASHBOARD MASTER v1.4 - The Ultimate UI
 #   Visuals: Inspired by GRE Master (Cyberpunk)
-#   Logic: V11 (Bug Free & Secure)
+#   Logic: V14 (Smart Backups & Fixed YAML Quotes)
 # ==================================================
 
 # --- 🎨 THEME & COLORS (Matches your GRE script) ---
@@ -25,7 +25,7 @@ HI_GREEN='\033[0;92m'
 INSTALL_DIR="/opt/wgdashboard"
 BACKUP_SCRIPT_PATH="/usr/local/bin/wgd-backup.sh"
 PROJECT_NAME="wgdashboard"
-VERSION="20.0"
+VERSION="1.4"
 AUTHOR="UnknownZero"
 
 # --- UTILS ---
@@ -151,9 +151,9 @@ services:
     network_mode: host
     environment:
       - TZ=UTC
-      - public_ip="${PUBLIC_IP}"
-      - username="${WGD_USER}"
-      - password="${WGD_PASS}"
+      - public_ip=${PUBLIC_IP}
+      - username=${WGD_USER}
+      - password=${WGD_PASS}
       - wgd_port=${WGD_PORT}
       - global_dns=1.1.1.1
       - wg_autostart=true
@@ -181,11 +181,17 @@ EOF
 }
 
 setup_backup_bot() {
+    local BACKUP_MODE=$1
     draw_logo
-    echo -e "\n${YELLOW}➤ TELEGRAM BACKUP SETUP${NC}"
+    
+    if [ "$BACKUP_MODE" == "essential" ]; then
+        echo -e "\n${YELLOW}➤ TELEGRAM BACKUP SETUP (ESSENTIAL MODE)${NC}"
+    else
+        echo -e "\n${YELLOW}➤ TELEGRAM BACKUP SETUP (FULL MODE)${NC}"
+    fi
     echo -e "${GREY}──────────────────────────────────────────────────────────────${NC}"
     
-    apt-get update -qq >/dev/null 2>&1; apt-get install -y -qq zip curl cron >/dev/null 2>&1
+    apt-get update -qq >/dev/null 2>&1; apt-get install -y -qq tar gzip curl cron >/dev/null 2>&1
 
     msg_box "inp" "Bot Token: "; read TG_TOKEN
     msg_box "inp" "Chat ID: "; read TG_CHATID
@@ -196,7 +202,7 @@ setup_backup_bot() {
     fi
 
     msg_box "info" "Verifying Connection..."
-    TEST=$(curl -s --max-time 10 -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" -d chat_id="${TG_CHATID}" -d text="🔌 Connection Verified by WGDashboard Manager")
+    TEST=$(curl -s --max-time 10 -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" -d chat_id="${TG_CHATID}" -d text="🔌 Connection Verified by WGDashboard Manager v1.4")
     
     if [[ "$TEST" != *"\"ok\":true"* ]]; then
         msg_box "err" "Connection Failed."
@@ -218,6 +224,7 @@ setup_backup_bot() {
     echo "CHAT_ID=\"$TG_CHATID\"" >> "$BACKUP_SCRIPT_PATH"
     echo "PREFIX=\"$CLEAN_PREFIX\"" >> "$BACKUP_SCRIPT_PATH"
     echo "PROJECT=\"$PROJECT_NAME\"" >> "$BACKUP_SCRIPT_PATH"
+    echo "MODE=\"$BACKUP_MODE\"" >> "$BACKUP_SCRIPT_PATH"
     
     cat <<'EOS' >> "$BACKUP_SCRIPT_PATH"
 SERVER_IP=$(curl -s --max-time 5 ifconfig.me || hostname -I | awk '{print $1}')
@@ -225,7 +232,9 @@ DATE=$(date +'%Y-%m-%d %H:%M')
 FILENAME="${PREFIX}_$(date +'%Y-%m-%d_%H-%M')"
 TEMP_DIR=$(mktemp -d)
 BACKUP_DIR="${TEMP_DIR}/${FILENAME}"
-ZIP_FILE="${TEMP_DIR}/${FILENAME}.zip"
+ARCHIVE_FILE="${TEMP_DIR}/${FILENAME}.tar.gz"
+
+echo "  ➤ Initializing backup structure..."
 mkdir -p "${BACKUP_DIR}"
 
 VOL_CONF=$(docker volume inspect ${PROJECT}_conf --format '{{.Mountpoint}}' 2>/dev/null)
@@ -236,46 +245,86 @@ if [ -z "$VOL_CONF" ]; then VOL_CONF=$(docker volume inspect wgdashboard_conf --
 if [ -z "$VOL_DATA" ]; then VOL_DATA=$(docker volume inspect wgdashboard_data --format '{{.Mountpoint}}' 2>/dev/null); fi
 if [ -z "$VOL_ACONF" ]; then VOL_ACONF=$(docker volume inspect wgdashboard_aconf --format '{{.Mountpoint}}' 2>/dev/null); fi
 
+echo "  ➤ Copying active databases and configs..."
 if [ -n "$VOL_CONF" ] && [ -d "$VOL_CONF" ]; then cp -r "$VOL_CONF" "${BACKUP_DIR}/wireguard_conf"; fi
 if [ -n "$VOL_DATA" ] && [ -d "$VOL_DATA" ]; then cp -r "$VOL_DATA" "${BACKUP_DIR}/dashboard_data"; fi
 if [ -n "$VOL_ACONF" ] && [ -d "$VOL_ACONF" ]; then cp -r "$VOL_ACONF" "${BACKUP_DIR}/amnezia_conf"; fi
 
+echo "  ➤ Compressing to tar.gz format..."
 cd "${TEMP_DIR}"
-zip -r "${ZIP_FILE}" "${FILENAME}" >/dev/null 2>&1
 
-# --- BEAUTIFUL HTML CAPTION ---
-CAPTION="🔐 <b>WGDashboard Backup</b>
+if [ "$MODE" == "essential" ]; then
+    tar --exclude="*/WGDashboard_Backup/*" --exclude="*/wgdashboard_log.db" -czf "${ARCHIVE_FILE}" "${FILENAME}" >/dev/null 2>&1
+    MODE_TEXT="Essential"
+else
+    tar -czf "${ARCHIVE_FILE}" "${FILENAME}" >/dev/null 2>&1
+    MODE_TEXT="Full"
+fi
+
+FILE_SIZE=$(du -sh "${ARCHIVE_FILE}" | cut -f1)
+echo "  ➤ Archive created! Size: ${FILE_SIZE}"
+
+CAPTION="🔐 <b>WGDashboard Backup (${MODE_TEXT})</b>
 ━━━━━━━━━━━━━━━━━━
 🏷 <b>Server:</b> <code>${PREFIX}</code>
 🌍 <b>IP Addr:</b> <code>${SERVER_IP}</code>
 📅 <b>Time:</b> <code>${DATE}</code>
+📦 <b>Size:</b> <code>${FILE_SIZE}</code>
 ━━━━━━━━━━━━━━━━━━
 ✅ <i>Config & Database Secured.</i>"
 
-curl -s --max-time 45 -F chat_id="${CHAT_ID}" -F caption="${CAPTION}" -F parse_mode="HTML" -F document=@"${ZIP_FILE}" "https://api.telegram.org/bot${TOKEN}/sendDocument"
+echo "  ➤ Uploading to Telegram (This may take a moment)..."
+curl -s --connect-timeout 10 -F chat_id="${CHAT_ID}" -F caption="${CAPTION}" -F parse_mode="HTML" -F document=@"${ARCHIVE_FILE}" "https://api.telegram.org/bot${TOKEN}/sendDocument"
+
 rm -rf "${TEMP_DIR}"
+echo "  ✔ Backup cycle completed!"
 EOS
     
     echo ""
     echo -e "   ${HI_CYAN}[1]${NC} Every 30 Minutes"
-    echo -e "   ${HI_CYAN}[2]${NC} Every 6 Hours"
-    echo -e "   ${HI_CYAN}[3]${NC} Daily"
+    echo -e "   ${HI_CYAN}[2]${NC} Custom Interval (Every X hours)"
+    echo -e "   ${HI_CYAN}[3]${NC} Daily (At specific hour)"
     echo ""
     msg_box "inp" "Select Frequency: "; read FREQ
     
     case $FREQ in
-        1) CRON="*/30 * * * *" ;;
-        2) CRON="0 */6 * * *" ;; 
-        3) msg_box "inp" "Hour (0-23): "; read H; CRON="0 ${H:-0} * * *" ;;
-        *) CRON="0 3 * * *" ;;
+        1) 
+            CRON="*/30 * * * *" 
+            ;;
+        2) 
+            echo -e "   ${GREY}Specify the interval in hours (e.g., '2' = every 2 hours, '6' = every 6 hours).${NC}"
+            msg_box "inp" "Enter hours [1-23]: "; read C_HOUR
+            if [[ ! "$C_HOUR" =~ ^[0-9]+$ ]] || [ "$C_HOUR" -lt 1 ] || [ "$C_HOUR" -gt 23 ]; then
+                msg_box "warn" "Invalid input. Defaulting to every 1 hour."
+                C_HOUR=1
+            fi
+            CRON="0 */${C_HOUR} * * *" 
+            ;; 
+        3) 
+            msg_box "inp" "Hour (0-23): "; read H
+            if [[ ! "$H" =~ ^[0-9]+$ ]] || [ "$H" -lt 0 ] || [ "$H" -gt 23 ]; then
+                H=0
+            fi
+            CRON="0 ${H} * * *" 
+            ;;
+        *) 
+            CRON="0 3 * * *" 
+            ;;
     esac
 
     (crontab -l 2>/dev/null | grep -vF "$BACKUP_SCRIPT_PATH") | crontab -
     (crontab -l 2>/dev/null; echo "$CRON $BACKUP_SCRIPT_PATH") | crontab -
     
     echo ""
-    msg_box "ok" "Backup Scheduled! Sending test file now..."
+    msg_box "ok" "Backup Scheduled Successfully!"
+    echo -e "   ${YELLOW}Running a test backup to ensure everything works...${NC}"
+    echo -e "   ${GREY}--------------------------------------------------${NC}"
+    
+    # Run script directly to show output
     bash "$BACKUP_SCRIPT_PATH"
+    
+    echo -e "   ${GREY}--------------------------------------------------${NC}"
+    msg_box "ok" "Test Process Finished! Check your Telegram."
     read -p "   Press Enter..."
 }
 
@@ -284,9 +333,9 @@ restore_backup() {
     echo -e "\n${YELLOW}➤ RESTORE WIZARD${NC}"
     echo -e "${GREY}──────────────────────────────────────────────────────────────${NC}"
     
-    mapfile -t BACKUPS < <(ls /root/*.zip 2>/dev/null)
+    mapfile -t BACKUPS < <(ls /root/*.tar.gz 2>/dev/null)
     if [ ${#BACKUPS[@]} -eq 0 ]; then
-        msg_box "err" "No .zip files found in /root/ directory."
+        msg_box "err" "No .tar.gz files found in /root/ directory."
         read -p "   Press Enter..."; return
     fi
 
@@ -311,16 +360,23 @@ restore_backup() {
     msg_box "inp" "Type 'restore' to confirm: "; read CONFIRM
     if [ "$CONFIRM" == "restore" ]; then
         echo ""
-        msg_box "info" "Installing Unzip..."
-        apt-get install -y -qq unzip >/dev/null
+        msg_box "info" "Installing Extraction Tools..."
+        apt-get install -y -qq tar gzip >/dev/null
         
         msg_box "info" "Stopping Panel..."
         if [ -d "$INSTALL_DIR" ]; then cd "$INSTALL_DIR"; docker compose -p "$PROJECT_NAME" down >/dev/null 2>&1; fi
         
         msg_box "info" "Extracting Data..."
         TEMP_RESTORE=$(mktemp -d)
-        unzip -q "$FILE_FULL_PATH" -d "$TEMP_RESTORE"
+        tar -xzf "$FILE_FULL_PATH" -C "$TEMP_RESTORE"
         SOURCE_DIR=$(find "$TEMP_RESTORE" -type d -name "wireguard_conf" | xargs dirname | head -n 1)
+
+        # Validation check for corrupt backups
+        if [ -z "$SOURCE_DIR" ]; then
+            msg_box "err" "Invalid backup structure! Restore aborted to prevent data loss."
+            rm -rf "$TEMP_RESTORE"
+            read -p "   Press Enter..."; return
+        fi
 
         VOL_CONF=$(docker volume inspect ${PROJECT_NAME}_conf --format '{{.Mountpoint}}' 2>/dev/null)
         VOL_DATA=$(docker volume inspect ${PROJECT_NAME}_data --format '{{.Mountpoint}}' 2>/dev/null)
@@ -400,9 +456,10 @@ while true; do
     
     echo -e "${GREY}──────────────────────────────────────────────────────────────${NC}"
     echo -e "${YELLOW} BACKUP & RESTORE${NC}"
-    print_item 4 "Setup Bot" "Auto-Backup to Telegram"
-    print_item 5 "Restore Data" "Restore from .zip File"
-    print_item 6 "Disable Bot" "Stop Cron Jobs"
+    print_item 4 "Setup Bot (All)" "Auto-Backup Everything"
+    print_item 5 "Setup Bot (Lite)" "Backup Only Essentials"
+    print_item 6 "Restore Data" "Restore from .tar.gz File"
+    print_item 7 "Disable Bot" "Stop Cron Jobs"
     
     echo -e "${GREY}──────────────────────────────────────────────────────────────${NC}"
     echo -e "${YELLOW} SYSTEM${NC}"
@@ -417,9 +474,10 @@ while true; do
         1) install_panel ;;
         2) update_panel ;;
         3) view_logs ;;
-        4) setup_backup_bot ;;
-        5) restore_backup ;;
-        6) remove_backup_only ;;
+        4) setup_backup_bot "all" ;;
+        5) setup_backup_bot "essential" ;;
+        6) restore_backup ;;
+        7) remove_backup_only ;;
         0) uninstall_all ;;
         9) clear; exit 0 ;;
         *) ;;
